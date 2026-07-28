@@ -1,9 +1,11 @@
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-BASE_DIR = Path(__file__).resolve().parents[4]
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+ENV_FILE = PROJECT_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -12,17 +14,21 @@ class Settings(BaseSettings):
     debug: bool = True
 
     frontend_url: str = "http://localhost:3000"
-    backend_url: str = "http://localhost:8000"
 
     database_url: str
     redis_url: str
 
     model_config = SettingsConfigDict(
-        env_file=BASE_DIR / ".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

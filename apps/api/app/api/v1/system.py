@@ -1,12 +1,11 @@
 from fastapi import APIRouter
 
+from app.services.system_service import get_system_status
+
+
 router = APIRouter()
 
 
 @router.get("/status")
-async def get_system_status() -> dict[str, str]:
-    return {
-        "api": "connected",
-        "database": "not_checked",
-        "redis": "not_checked",
-    }
+def get_system_status_endpoint() -> dict[str, str]:
+    return get_system_status()
