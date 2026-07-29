@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user
@@ -13,6 +13,7 @@ from app.schemas.quotation import (
     QuotationResponse,
     QuotationUpdate,
 )
+from app.services.quotation_pdf_service import generate_quotation_pdf
 from app.services.quotation_service import (
     create_quotation,
     delete_quotation,
@@ -43,6 +44,7 @@ def create_quotation_endpoint(
         )
     except ValueError as exc:
         db.rollback()
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -62,9 +64,18 @@ def create_quotation_endpoint(
     response_model=QuotationListResponse,
 )
 def list_quotations_endpoint(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
-    search: str | None = Query(default=None),
+    page: int = Query(
+        default=1,
+        ge=1,
+    ),
+    page_size: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+    ),
+    search: str | None = Query(
+        default=None,
+    ),
     quotation_status: QuotationStatus | None = Query(
         default=None,
         alias="status",
@@ -86,6 +97,69 @@ def list_quotations_endpoint(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get(
+    "/{quotation_id}/pdf",
+    response_class=Response,
+    responses={
+        status.HTTP_200_OK: {
+            "content": {
+                "application/pdf": {},
+            },
+            "description": "Quotation PDF",
+        },
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Quotation not found",
+        },
+    },
+)
+def download_quotation_pdf_endpoint(
+    quotation_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    quotation = get_quotation_by_id(
+        db=db,
+        quotation_id=quotation_id,
+        organization_id=current_user.organization_id,
+    )
+
+    if quotation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Quotation not found",
+        )
+
+    try:
+        pdf_bytes = generate_quotation_pdf(
+            quotation=quotation,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to generate quotation PDF",
+        ) from exc
+
+    if not pdf_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Generated quotation PDF is empty",
+        )
+
+    filename = f"{quotation.quotation_number}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        status_code=status.HTTP_200_OK,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"'
+            ),
+            "Content-Length": str(len(pdf_bytes)),
+        },
     )
 
 
@@ -144,6 +218,7 @@ def update_quotation_endpoint(
         )
     except ValueError as exc:
         db.rollback()
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),

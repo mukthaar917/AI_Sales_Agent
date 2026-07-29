@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.services.quotation_service import (
     calculate_line,
@@ -22,10 +23,12 @@ QUOTATIONS_URL = "/api/v1/quotations"
 
 def build_customer_payload() -> dict:
     """Build a valid customer request body."""
+    unique_value = uuid.uuid4().hex[:12]
+
     return {
-        "company_name": "ABC Technologies",
+        "company_name": f"ABC Technologies {unique_value}",
         "contact_name": "John Smith",
-        "email": "sales@example.com",
+        "email": f"sales-{unique_value}@example.com",
         "phone": "+1-555-123-4567",
         "website": "https://example.com",
         "address": "123 Main Street",
@@ -33,15 +36,17 @@ def build_customer_payload() -> dict:
         "state": "NY",
         "country": "USA",
         "postal_code": "10001",
-        "tax_number": "TAX-12345",
+        "tax_number": f"TAX-{unique_value}",
         "notes": "Quotation test customer",
     }
 
 
 def build_product_payload() -> dict:
     """Build a valid product request body."""
+    unique_value = uuid.uuid4().hex[:12]
+
     return {
-        "sku": "AI-QUOTE-001",
+        "sku": f"AI-QUOTE-{unique_value}",
         "name": "AI Email Automation",
         "description": "AI-powered email automation solution",
         "unit": "License",
@@ -52,7 +57,7 @@ def build_product_payload() -> dict:
 
 
 def create_test_customer(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> dict:
     """Create and return a customer using the API."""
@@ -62,13 +67,13 @@ def create_test_customer(
         headers=auth_headers,
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
 
     return response.json()
 
 
 def create_test_product(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> dict:
     """Create and return a product using the API."""
@@ -78,7 +83,7 @@ def create_test_product(
         headers=auth_headers,
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
 
     return response.json()
 
@@ -111,7 +116,7 @@ def build_quotation_payload(
 
 
 def create_test_quotation(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> dict:
     """Create the required customer, product, and quotation."""
@@ -136,7 +141,7 @@ def create_test_quotation(
         headers=auth_headers,
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
 
     return response.json()
 
@@ -368,14 +373,16 @@ class TestCalculateTotals:
 # ============================================================
 
 
-def test_quotations_require_authentication(client) -> None:
+def test_quotations_require_authentication(
+    client: TestClient,
+) -> None:
     response = client.get(QUOTATIONS_URL)
 
     assert response.status_code == 401
 
 
 def test_create_quotation(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     customer = create_test_customer(
@@ -399,7 +406,7 @@ def test_create_quotation(
         headers=auth_headers,
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
 
     data = response.json()
 
@@ -430,7 +437,7 @@ def test_create_quotation(
 
 
 def test_get_quotation(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     quotation = create_test_quotation(
@@ -457,7 +464,7 @@ def test_get_quotation(
 
 
 def test_list_quotations(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     quotation = create_test_quotation(
@@ -482,7 +489,7 @@ def test_list_quotations(
 
 
 def test_search_quotations(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     quotation = create_test_quotation(
@@ -505,7 +512,7 @@ def test_search_quotations(
 
 
 def test_filter_quotations_by_status(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     quotation = create_test_quotation(
@@ -537,7 +544,7 @@ def test_filter_quotations_by_status(
 
 
 def test_update_quotation(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     customer = create_test_customer(
@@ -561,7 +568,9 @@ def test_update_quotation(
         headers=auth_headers,
     )
 
-    assert create_response.status_code == 201
+    assert create_response.status_code == 201, (
+        create_response.text
+    )
 
     quotation_id = create_response.json()["id"]
 
@@ -579,7 +588,9 @@ def test_update_quotation(
         headers=auth_headers,
     )
 
-    assert update_response.status_code == 200
+    assert update_response.status_code == 200, (
+        update_response.text
+    )
 
     data = update_response.json()
 
@@ -594,7 +605,7 @@ def test_update_quotation(
 
 
 def test_delete_quotation(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     quotation = create_test_quotation(
@@ -624,7 +635,7 @@ def test_delete_quotation(
 
 
 def test_quotation_not_found(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     missing_quotation_id = uuid.uuid4()
@@ -641,7 +652,7 @@ def test_quotation_not_found(
 
 
 def test_invalid_customer_returns_400(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     product = create_test_product(
@@ -670,7 +681,7 @@ def test_invalid_customer_returns_400(
 
 
 def test_invalid_product_returns_400(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     customer = create_test_customer(
@@ -699,7 +710,7 @@ def test_invalid_product_returns_400(
 
 
 def test_create_quotation_without_product_reference(
-    client,
+    client: TestClient,
     auth_headers: dict[str, str],
 ) -> None:
     customer = create_test_customer(
@@ -712,7 +723,9 @@ def test_create_quotation_without_product_reference(
         product_id=None,
     )
 
-    payload["items"][0]["description"] = "Custom consulting service"
+    payload["items"][0]["description"] = (
+        "Custom consulting service"
+    )
 
     response = client.post(
         QUOTATIONS_URL,
@@ -720,7 +733,7 @@ def test_create_quotation_without_product_reference(
         headers=auth_headers,
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
 
     data = response.json()
 
