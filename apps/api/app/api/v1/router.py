@@ -7,6 +7,7 @@ from app.api.v1 import (
     quotations,
     system,
 )
+from app.api.v1.endpoints import gmail
 
 
 api_router = APIRouter()
@@ -40,4 +41,10 @@ api_router.include_router(
     quotations.router,
     prefix="/quotations",
     tags=["Quotations"],
+)
+
+api_router.include_router(
+    gmail.router,
+    prefix="/gmail",
+    tags=["Gmail"],
 )
