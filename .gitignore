@@ -13,3 +13,4 @@ credentials.json
 token.json
 *.pem
 *.key
+GoogleCloudConsole.json

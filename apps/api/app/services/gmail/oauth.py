@@ -1,11 +1,15 @@
 """Gmail OAuth service.
 
-This module handles Google OAuth authorization, authorization-code exchange,
-access-token refresh, and Gmail profile retrieval.
+Handles:
 
-It does not store credentials or write to the database. Token encryption and
-GmailConnection persistence should be handled by a higher-level service or API
-endpoint.
+- Google OAuth authorization URL generation
+- Authorization-code exchange
+- Access-token refresh
+- Gmail profile retrieval
+
+This service does not write credentials to the database. Credential encryption
+and GmailConnection persistence should be handled by a higher-level service or
+API endpoint.
 """
 
 from __future__ import annotations
@@ -21,16 +25,16 @@ from googleapiclient.discovery import build
 from app.core.config import settings
 
 
-GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 
 class GmailOAuthError(Exception):
-    """Raised when a Gmail OAuth operation fails safely."""
+    """Raised when a Gmail OAuth operation cannot be completed safely."""
 
 
 class GmailOAuthService:
-    """Service for Gmail OAuth and Gmail profile operations."""
+    """Provide Gmail OAuth and Gmail profile operations."""
 
     def __init__(self) -> None:
         self.client_id = settings.google_client_id.strip()
@@ -39,15 +43,10 @@ class GmailOAuthService:
         self.scopes = self._normalize_scopes(settings.gmail_scopes)
 
     def build_authorization_url(self) -> tuple[str, str]:
-        """Build Google's OAuth authorization URL.
+        """Create a Google OAuth authorization URL and state value."""
 
-        Returns:
-            A tuple containing the authorization URL and generated OAuth state.
+        self._validate_configuration()
 
-        Raises:
-            GmailOAuthError: If OAuth configuration is invalid or URL creation
-                fails.
-        """
         try:
             flow = self._create_flow()
 
@@ -57,36 +56,41 @@ class GmailOAuthService:
                 include_granted_scopes="true",
             )
 
+            if not authorization_url:
+                raise GmailOAuthError(
+                    "Google OAuth did not produce an authorization URL."
+                )
+
+            if not state:
+                raise GmailOAuthError(
+                    "Google OAuth did not produce a state value."
+                )
+
             return authorization_url, state
+
         except GmailOAuthError:
             raise
-        except Exception as exc:
+        except Exception:
             raise GmailOAuthError(
                 "Unable to create Gmail authorization URL."
-            ) from exc
+            ) from None
 
     def exchange_code_for_tokens(self, code: str) -> dict[str, Any]:
-        """Exchange an OAuth authorization code for Google credentials.
+        """Exchange a Google authorization code for OAuth credentials."""
 
-        Args:
-            code: Authorization code returned by Google.
-
-        Returns:
-            Normalized token information containing access token, refresh token,
-            expiry, and scopes.
-
-        Raises:
-            ValueError: If the authorization code is empty.
-            GmailOAuthError: If Google rejects the code or token exchange fails.
-        """
         normalized_code = code.strip()
 
         if not normalized_code:
             raise ValueError("Authorization code is required.")
 
+        self._validate_configuration()
+
         try:
             flow = self._create_flow()
-            flow.fetch_token(code=normalized_code)
+
+            flow.fetch_token(
+                code=normalized_code,
+            )
 
             credentials = flow.credentials
 
@@ -96,37 +100,28 @@ class GmailOAuthService:
                 )
 
             return self._normalize_credentials(credentials)
+
         except GmailOAuthError:
             raise
-        except Exception as exc:
+        except Exception:
             raise GmailOAuthError(
                 "Unable to exchange Gmail authorization code for tokens."
-            ) from exc
+            ) from None
 
     def refresh_access_token(
         self,
         refresh_token: str,
     ) -> dict[str, Any]:
-        """Refresh an expired Gmail access token.
+        """Refresh a Google access token using a stored refresh token."""
 
-        Args:
-            refresh_token: Stored Google OAuth refresh token.
-
-        Returns:
-            Normalized refreshed token information.
-
-        Raises:
-            ValueError: If the refresh token is empty.
-            GmailOAuthError: If refreshing the token fails.
-        """
         normalized_refresh_token = refresh_token.strip()
 
         if not normalized_refresh_token:
             raise ValueError("Refresh token is required.")
 
-        try:
-            self._validate_configuration()
+        self._validate_configuration()
 
+        try:
             credentials = Credentials(
                 token=None,
                 refresh_token=normalized_refresh_token,
@@ -145,44 +140,34 @@ class GmailOAuthService:
 
             result = self._normalize_credentials(credentials)
 
-            # Some mocked or provider-generated credential objects may not
-            # retain the refresh token after refresh. Preserve the supplied
-            # stored token in that case.
             if not result["refresh_token"]:
                 result["refresh_token"] = normalized_refresh_token
 
             return result
+
         except GmailOAuthError:
             raise
-        except Exception as exc:
+        except Exception:
             raise GmailOAuthError(
                 "Unable to refresh Gmail access token."
-            ) from exc
+            ) from None
 
     def fetch_gmail_profile(
         self,
         access_token: str,
     ) -> dict[str, Any]:
-        """Retrieve the authenticated user's Gmail profile.
+        """Retrieve the authenticated Google account's Gmail profile."""
 
-        Args:
-            access_token: Valid Google OAuth access token.
-
-        Returns:
-            Normalized Gmail profile information.
-
-        Raises:
-            ValueError: If the access token is empty.
-            GmailOAuthError: If profile retrieval fails or the response does
-                not contain an email address.
-        """
         normalized_access_token = access_token.strip()
 
         if not normalized_access_token:
             raise ValueError("Access token is required.")
 
         try:
-            credentials = Credentials(token=normalized_access_token)
+            credentials = Credentials(
+                token=normalized_access_token,
+                scopes=self.scopes,
+            )
 
             gmail = build(
                 "gmail",
@@ -210,27 +195,29 @@ class GmailOAuthService:
                 "threads_total": profile.get("threadsTotal", 0),
                 "history_id": profile.get("historyId"),
             }
+
         except GmailOAuthError:
             raise
-        except Exception as exc:
+        except Exception:
             raise GmailOAuthError(
                 "Unable to retrieve Gmail profile."
-            ) from exc
+            ) from None
 
     def _create_flow(self) -> Flow:
-        """Create and configure a Google OAuth flow."""
+        """Create a configured Google OAuth flow."""
+
         self._validate_configuration()
 
-        flow = Flow.from_client_config(
-            self._client_config(),
+        return Flow.from_client_config(
+            client_config=self._client_config(),
             scopes=self.scopes,
+            redirect_uri=self.redirect_uri,
+            autogenerate_code_verifier=False,
         )
-        flow.redirect_uri = self.redirect_uri
-
-        return flow
 
     def _client_config(self) -> dict[str, dict[str, Any]]:
-        """Build Google OAuth client configuration from application settings."""
+        """Return Google OAuth client configuration."""
+
         return {
             "web": {
                 "client_id": self.client_id,
@@ -242,25 +229,33 @@ class GmailOAuthService:
         }
 
     def _validate_configuration(self) -> None:
-        """Validate required Gmail OAuth configuration."""
-        missing_settings: list[str] = []
+        """Validate all required Gmail OAuth settings."""
+
+        errors: list[str] = []
 
         if not self.client_id:
-            missing_settings.append("GOOGLE_CLIENT_ID")
+            errors.append("GOOGLE_CLIENT_ID")
+        elif self._looks_like_placeholder(self.client_id):
+            errors.append("GOOGLE_CLIENT_ID contains a placeholder")
 
         if not self.client_secret:
-            missing_settings.append("GOOGLE_CLIENT_SECRET")
+            errors.append("GOOGLE_CLIENT_SECRET")
+        elif self._looks_like_placeholder(self.client_secret):
+            errors.append(
+                "GOOGLE_CLIENT_SECRET contains a placeholder"
+            )
 
         if not self.redirect_uri:
-            missing_settings.append("GOOGLE_REDIRECT_URI")
+            errors.append("GOOGLE_REDIRECT_URI")
 
         if not self.scopes:
-            missing_settings.append("GMAIL_SCOPES")
+            errors.append("GMAIL_SCOPES")
 
-        if missing_settings:
-            names = ", ".join(missing_settings)
+        if errors:
             raise GmailOAuthError(
-                f"Gmail OAuth configuration is incomplete: {names}."
+                "Gmail OAuth configuration is incomplete: "
+                + ", ".join(errors)
+                + "."
             )
 
     @staticmethod
@@ -268,6 +263,7 @@ class GmailOAuthService:
         credentials: Credentials,
     ) -> dict[str, Any]:
         """Convert Google credentials into an application-safe dictionary."""
+
         expiry: datetime | None = credentials.expiry
         credential_scopes = credentials.scopes or []
 
@@ -279,10 +275,12 @@ class GmailOAuthService:
         }
 
     @staticmethod
-    def _normalize_scopes(value: str | list[str] | tuple[str, ...]) -> list[str]:
-        """Normalize configured Gmail scopes into a list."""
+    def _normalize_scopes(
+        value: str | list[str] | tuple[str, ...],
+    ) -> list[str]:
+        """Normalize whitespace- or comma-separated Gmail scopes."""
+
         if isinstance(value, str):
-            # Supports either whitespace-separated or comma-separated scopes.
             return [
                 scope.strip()
                 for scope in value.replace(",", " ").split()
@@ -294,3 +292,23 @@ class GmailOAuthService:
             for scope in value
             if str(scope).strip()
         ]
+
+    @staticmethod
+    def _looks_like_placeholder(value: str) -> bool:
+        """Return True when a setting appears to contain placeholder text."""
+
+        normalized = value.strip().upper()
+
+        placeholder_markers = (
+            "YOUR_REAL_",
+            "PASTE_",
+            "REPLACE_",
+            "YOUR_CLIENT_",
+            "YOUR_ACTUAL_",
+            "EXAMPLE",
+        )
+
+        return any(
+            marker in normalized
+            for marker in placeholder_markers
+        )
