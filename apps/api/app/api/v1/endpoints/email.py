@@ -1,13 +1,21 @@
-"""Email synchronization API endpoints."""
+"""Email synchronization and inbox API endpoints."""
 
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+)
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -19,8 +27,16 @@ from app.core.encryption import (
     encrypt_secret,
 )
 from app.db.session import get_db
+from app.models.email_message import EmailMessage
+from app.models.email_thread import EmailThread
 from app.models.gmail_connection import GmailConnection
 from app.models.user import User
+from app.schemas.email import (
+    EmailMessageResponse,
+    EmailThreadDetail,
+    EmailThreadListResponse,
+    EmailThreadSummary,
+)
 from app.services.gmail.client import (
     GmailClient,
     GmailClientError,
@@ -68,7 +84,6 @@ def _deserialize_scopes(
     except (json.JSONDecodeError, TypeError):
         pass
 
-    # Backward compatibility for whitespace- or comma-separated scopes.
     return [
         scope.strip()
         for scope in scopes_value.replace(",", " ").split()
@@ -80,7 +95,7 @@ def _get_active_gmail_connection(
     db: Session,
     current_user: User,
 ) -> GmailConnection | None:
-    """Return the active Gmail connection for the current user and tenant."""
+    """Return the active Gmail connection for one user and tenant."""
 
     statement = select(GmailConnection).where(
         GmailConnection.organization_id
@@ -167,6 +182,7 @@ def sync_gmail_inbox(
             connection.access_token_encrypted = encrypt_secret(
                 access_token
             )
+
             connection.token_expiry = (
                 refreshed_credentials.get("token_expiry")
             )
@@ -247,3 +263,306 @@ def sync_gmail_inbox(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to save Gmail synchronization results.",
         ) from None
+
+
+@router.get(
+    "/threads",
+    response_model=EmailThreadListResponse,
+    status_code=status.HTTP_200_OK,
+)
+def list_email_threads(
+    page: int = Query(
+        default=1,
+        ge=1,
+    ),
+    page_size: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+    ),
+    search: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=255,
+    ),
+    sender: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=320,
+    ),
+    unread: bool | None = Query(
+        default=None,
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EmailThreadListResponse:
+    """Return synchronized email threads for the current organization."""
+
+    thread_filters = [
+        EmailThread.organization_id
+        == current_user.organization_id,
+    ]
+
+    if unread is not None:
+        thread_filters.append(
+            EmailThread.unread.is_(unread)
+        )
+
+    normalized_search = (
+        search.strip()
+        if search
+        else None
+    )
+
+    if normalized_search:
+        search_pattern = f"%{normalized_search}%"
+
+        sender_thread_ids = (
+            select(EmailMessage.thread_id)
+            .where(
+                EmailMessage.organization_id
+                == current_user.organization_id,
+                EmailMessage.sender_email.ilike(
+                    search_pattern
+                ),
+            )
+        )
+
+        thread_filters.append(
+            or_(
+                EmailThread.subject.ilike(
+                    search_pattern
+                ),
+                EmailThread.snippet.ilike(
+                    search_pattern
+                ),
+                EmailThread.id.in_(sender_thread_ids),
+            )
+        )
+
+    normalized_sender = (
+        sender.strip()
+        if sender
+        else None
+    )
+
+    if normalized_sender:
+        sender_pattern = f"%{normalized_sender}%"
+
+        sender_thread_ids = (
+            select(EmailMessage.thread_id)
+            .where(
+                EmailMessage.organization_id
+                == current_user.organization_id,
+                EmailMessage.sender_email.ilike(
+                    sender_pattern
+                ),
+            )
+        )
+
+        thread_filters.append(
+            EmailThread.id.in_(sender_thread_ids)
+        )
+
+    total_statement = (
+        select(func.count())
+        .select_from(EmailThread)
+        .where(*thread_filters)
+    )
+
+    total = db.scalar(total_statement) or 0
+
+    message_count_subquery = (
+        select(
+            EmailMessage.thread_id.label(
+                "thread_id"
+            ),
+            func.count(
+                EmailMessage.id
+            ).label(
+                "message_count"
+            ),
+        )
+        .where(
+            EmailMessage.organization_id
+            == current_user.organization_id
+        )
+        .group_by(
+            EmailMessage.thread_id
+        )
+        .subquery()
+    )
+
+    thread_statement = (
+        select(
+            EmailThread,
+            func.coalesce(
+                message_count_subquery.c.message_count,
+                0,
+            ).label("message_count"),
+        )
+        .outerjoin(
+            message_count_subquery,
+            message_count_subquery.c.thread_id
+            == EmailThread.id,
+        )
+        .where(*thread_filters)
+        .order_by(
+            EmailThread.last_message_at.desc().nullslast(),
+            EmailThread.created_at.desc(),
+        )
+        .offset(
+            (page - 1) * page_size
+        )
+        .limit(page_size)
+    )
+
+    rows = db.execute(
+        thread_statement
+    ).all()
+
+    items = [
+        EmailThreadSummary(
+            id=thread.id,
+            provider_thread_id=(
+                thread.provider_thread_id
+            ),
+            subject=thread.subject,
+            snippet=thread.snippet,
+            participant_emails=(
+                thread.participant_emails or []
+            ),
+            last_message_at=thread.last_message_at,
+            unread=thread.unread,
+            message_count=int(message_count),
+            created_at=thread.created_at,
+            updated_at=thread.updated_at,
+        )
+        for thread, message_count in rows
+    ]
+
+    total_pages = (
+        math.ceil(total / page_size)
+        if total
+        else 0
+    )
+
+    return EmailThreadListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
+
+
+@router.get(
+    "/threads/{thread_id}",
+    response_model=EmailThreadDetail,
+    status_code=status.HTTP_200_OK,
+)
+def get_email_thread(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EmailThreadDetail:
+    """Return one email thread and its messages."""
+
+    thread_statement = select(
+        EmailThread
+    ).where(
+        EmailThread.id == thread_id,
+        EmailThread.organization_id
+        == current_user.organization_id,
+    )
+
+    thread = db.scalar(
+        thread_statement
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    message_statement = (
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id
+            == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
+        .order_by(
+            case(
+                (
+                    EmailMessage.received_at.is_not(None),
+                    EmailMessage.received_at,
+                ),
+                else_=EmailMessage.sent_at,
+            ).asc().nullslast(),
+            EmailMessage.created_at.asc(),
+        )
+    )
+
+    messages = db.scalars(
+        message_statement
+    ).all()
+
+    return EmailThreadDetail(
+        id=thread.id,
+        provider_thread_id=(
+            thread.provider_thread_id
+        ),
+        subject=thread.subject,
+        snippet=thread.snippet,
+        participant_emails=(
+            thread.participant_emails or []
+        ),
+        last_message_at=thread.last_message_at,
+        unread=thread.unread,
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
+        messages=[
+            EmailMessageResponse.model_validate(
+                message
+            )
+            for message in messages
+        ],
+    )
+
+
+@router.get(
+    "/messages/{message_id}",
+    response_model=EmailMessageResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_email_message(
+    message_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EmailMessageResponse:
+    """Return one synchronized email message."""
+
+    statement = select(
+        EmailMessage
+    ).where(
+        EmailMessage.id == message_id,
+        EmailMessage.organization_id
+        == current_user.organization_id,
+    )
+
+    message = db.scalar(
+        statement
+    )
+
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email message was not found.",
+        )
+
+    return EmailMessageResponse.model_validate(
+        message
+    )
