@@ -7,7 +7,7 @@ from app.api.v1 import (
     quotations,
     system,
 )
-from app.api.v1.endpoints import gmail
+from app.api.v1.endpoints import email, gmail
 
 
 api_router = APIRouter()
@@ -47,4 +47,10 @@ api_router.include_router(
     gmail.router,
     prefix="/gmail",
     tags=["Gmail"],
+)
+
+api_router.include_router(
+    email.router,
+    prefix="/email",
+    tags=["Email"],
 )
