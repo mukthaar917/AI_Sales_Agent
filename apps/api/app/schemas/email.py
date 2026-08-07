@@ -1,4 +1,3 @@
-
 """Email inbox API schemas."""
 
 from __future__ import annotations
@@ -99,4 +98,17 @@ class EmailThreadDetail(BaseModel):
 
     messages: list[EmailMessageResponse] = Field(
         default_factory=list
+    )
+
+
+class EmailThreadSummaryResponse(BaseModel):
+    """AI-generated summary for one email thread."""
+
+    thread_id: UUID
+    summary: str = Field(
+        min_length=1,
+        max_length=4000,
+    )
+    message_count: int = Field(
+        ge=0,
     )

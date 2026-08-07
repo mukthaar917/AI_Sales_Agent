@@ -3,6 +3,7 @@ import type {
   EmailMessage,
   EmailThreadDetail,
   EmailThreadListResponse,
+  EmailThreadSummaryResponse,
   GmailSyncResponse,
   ThreadListParams,
 } from '../types/email'
@@ -41,6 +42,16 @@ export async function getEmailThread(
 ): Promise<EmailThreadDetail> {
   const response = await apiClient.get<EmailThreadDetail>(
     `/email/threads/${threadId}`,
+  )
+
+  return response.data
+}
+
+export async function summarizeThread(
+  threadId: string,
+): Promise<EmailThreadSummaryResponse> {
+  const response = await apiClient.post<EmailThreadSummaryResponse>(
+    `/email/threads/${threadId}/summary`,
   )
 
   return response.data

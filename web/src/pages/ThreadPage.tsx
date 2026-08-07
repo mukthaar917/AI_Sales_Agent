@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import DOMPurify from 'dompurify'
-import { getEmailThread } from '../api/email'
+import {
+  getEmailThread,
+  summarizeThread,
+} from '../api/email'
 import type {
   EmailMessage,
   EmailThreadDetail,
+  EmailThreadSummaryResponse,
 } from '../types/email'
 
 interface ThreadPageProps {
@@ -116,8 +120,16 @@ export function ThreadPage({
 }: ThreadPageProps) {
   const [thread, setThread] =
     useState<EmailThreadDetail | null>(null)
+  const [summary, setSummary] =
+    useState<EmailThreadSummaryResponse | null>(null)
+
   const [loading, setLoading] = useState(true)
+  const [summarizing, setSummarizing] =
+    useState(false)
+
   const [error, setError] =
+    useState<string | null>(null)
+  const [summaryError, setSummaryError] =
     useState<string | null>(null)
 
   useEffect(() => {
@@ -127,6 +139,8 @@ export function ThreadPage({
       try {
         setLoading(true)
         setError(null)
+        setSummary(null)
+        setSummaryError(null)
 
         const response =
           await getEmailThread(threadId)
@@ -154,6 +168,25 @@ export function ThreadPage({
     }
   }, [threadId])
 
+  async function handleSummarize(): Promise<void> {
+    try {
+      setSummarizing(true)
+      setSummaryError(null)
+
+      const response = await summarizeThread(
+        threadId,
+      )
+
+      setSummary(response)
+    } catch {
+      setSummaryError(
+        'Unable to summarize this email thread right now.',
+      )
+    } finally {
+      setSummarizing(false)
+    }
+  }
+
   return (
     <main className="thread-page">
       <header className="thread-page-header">
@@ -165,16 +198,38 @@ export function ThreadPage({
           ← Back to Inbox
         </button>
 
-        <div>
-          <p className="eyebrow">
-            AI Sales Agent
-          </p>
-          <h1>
-            {thread?.subject || 'Email Thread'}
-          </h1>
-          <p className="subtitle">
-            {thread?.participant_emails.join(', ')}
-          </p>
+        <div className="thread-heading-row">
+          <div>
+            <p className="eyebrow">
+              AI Sales Agent
+            </p>
+
+            <h1>
+              {thread?.subject || 'Email Thread'}
+            </h1>
+
+            <p className="subtitle">
+              {thread?.participant_emails.join(', ')}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => void handleSummarize()}
+            disabled={
+              loading ||
+              summarizing ||
+              !thread ||
+              thread.messages.length === 0
+            }
+          >
+            {summarizing
+              ? 'Summarizing…'
+              : summary
+                ? 'Regenerate Summary'
+                : 'Summarize Thread'}
+          </button>
         </div>
       </header>
 
@@ -191,6 +246,42 @@ export function ThreadPage({
         >
           {error}
         </div>
+      )}
+
+      {summaryError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {summaryError}
+        </div>
+      )}
+
+      {summary && (
+        <section
+          className="summary-card"
+          aria-label="Thread summary"
+        >
+          <div className="summary-card-header">
+            <div>
+              <p className="eyebrow">
+                AI Summary
+              </p>
+              <h2>Conversation overview</h2>
+            </div>
+
+            <span className="summary-count">
+              {summary.message_count}{' '}
+              {summary.message_count === 1
+                ? 'message'
+                : 'messages'}
+            </span>
+          </div>
+
+          <p className="summary-text">
+            {summary.summary}
+          </p>
+        </section>
       )}
 
       {!loading &&

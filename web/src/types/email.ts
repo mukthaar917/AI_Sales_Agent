@@ -71,3 +71,9 @@ export interface ThreadListParams {
   sender?: string
   unread?: boolean
 }
+
+export interface EmailThreadSummaryResponse {
+  thread_id: string
+  summary: string
+  message_count: number
+}

@@ -36,6 +36,11 @@ from app.schemas.email import (
     EmailThreadDetail,
     EmailThreadListResponse,
     EmailThreadSummary,
+    EmailThreadSummaryResponse,
+)
+from app.services.email_summary import (
+    EmailSummaryError,
+    EmailSummaryService,
 )
 from app.services.gmail.client import (
     GmailClient,
@@ -106,6 +111,21 @@ def _get_active_gmail_connection(
     )
 
     return db.scalar(statement)
+
+
+def _thread_message_order():
+    """Return the consistent chronological ordering for thread messages."""
+
+    return (
+        case(
+            (
+                EmailMessage.received_at.is_not(None),
+                EmailMessage.received_at,
+            ),
+            else_=EmailMessage.sent_at,
+        ).asc().nullslast(),
+        EmailMessage.created_at.asc(),
+    )
 
 
 @router.post(
@@ -468,16 +488,12 @@ def get_email_thread(
 ) -> EmailThreadDetail:
     """Return one email thread and its messages."""
 
-    thread_statement = select(
-        EmailThread
-    ).where(
-        EmailThread.id == thread_id,
-        EmailThread.organization_id
-        == current_user.organization_id,
-    )
-
     thread = db.scalar(
-        thread_statement
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
     )
 
     if thread is None:
@@ -486,28 +502,16 @@ def get_email_thread(
             detail="Email thread was not found.",
         )
 
-    message_statement = (
+    messages = db.scalars(
         select(EmailMessage)
         .where(
-            EmailMessage.thread_id
-            == thread.id,
+            EmailMessage.thread_id == thread.id,
             EmailMessage.organization_id
             == current_user.organization_id,
         )
         .order_by(
-            case(
-                (
-                    EmailMessage.received_at.is_not(None),
-                    EmailMessage.received_at,
-                ),
-                else_=EmailMessage.sent_at,
-            ).asc().nullslast(),
-            EmailMessage.created_at.asc(),
+            *_thread_message_order(),
         )
-    )
-
-    messages = db.scalars(
-        message_statement
     ).all()
 
     return EmailThreadDetail(
@@ -533,6 +537,62 @@ def get_email_thread(
     )
 
 
+@router.post(
+    "/threads/{thread_id}/summary",
+    response_model=EmailThreadSummaryResponse,
+    status_code=status.HTTP_200_OK,
+)
+def summarize_email_thread(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EmailThreadSummaryResponse:
+    """Generate a concise summary for one synchronized email thread."""
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    messages = db.scalars(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
+        .order_by(
+            *_thread_message_order(),
+        )
+    ).all()
+
+    try:
+        summary = EmailSummaryService().summarize(
+            thread=thread,
+            messages=list(messages),
+        )
+    except EmailSummaryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return EmailThreadSummaryResponse(
+        thread_id=thread.id,
+        summary=summary,
+        message_count=len(messages),
+    )
+
+
 @router.get(
     "/messages/{message_id}",
     response_model=EmailMessageResponse,
@@ -545,16 +605,12 @@ def get_email_message(
 ) -> EmailMessageResponse:
     """Return one synchronized email message."""
 
-    statement = select(
-        EmailMessage
-    ).where(
-        EmailMessage.id == message_id,
-        EmailMessage.organization_id
-        == current_user.organization_id,
-    )
-
     message = db.scalar(
-        statement
+        select(EmailMessage).where(
+            EmailMessage.id == message_id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
     )
 
     if message is None:
