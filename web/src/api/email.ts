@@ -1,5 +1,7 @@
 import { apiClient } from './client'
 import type {
+  DraftReplyRequest,
+  DraftReplyResponse,
   EmailMessage,
   EmailThreadDetail,
   EmailThreadListResponse,
@@ -66,6 +68,18 @@ export async function getReplySuggestions(
     await apiClient.post<ReplySuggestionsResponse>(
       `/email/threads/${threadId}/reply-suggestions`,
     )
+
+  return response.data
+}
+
+export async function createDraftReply(
+  threadId: string,
+  payload: DraftReplyRequest,
+): Promise<DraftReplyResponse> {
+  const response = await apiClient.post<DraftReplyResponse>(
+    `/email/threads/${threadId}/draft-reply`,
+    payload,
+  )
 
   return response.data
 }

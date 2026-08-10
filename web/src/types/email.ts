@@ -87,3 +87,15 @@ export interface ReplySuggestionsResponse {
   thread_id: string
   suggestions: ReplySuggestion[]
 }
+
+export interface DraftReplyRequest {
+  subject: string
+  body: string
+}
+
+export interface DraftReplyResponse {
+  thread_id: string
+  draft_id: string
+  message_id: string | null
+  status: string
+}

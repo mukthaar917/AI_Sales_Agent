@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import DOMPurify from 'dompurify'
 import {
+  createDraftReply,
   getEmailThread,
   getReplySuggestions,
   summarizeThread,
@@ -137,6 +138,9 @@ export function ThreadPage({
   const [generatingReplies, setGeneratingReplies] =
     useState(false)
 
+  const [creatingDraftIndex, setCreatingDraftIndex] =
+    useState<number | null>(null)
+
   const [error, setError] =
     useState<string | null>(null)
 
@@ -144,6 +148,12 @@ export function ThreadPage({
     useState<string | null>(null)
 
   const [replyError, setReplyError] =
+    useState<string | null>(null)
+
+  const [draftError, setDraftError] =
+    useState<string | null>(null)
+
+  const [draftSuccess, setDraftSuccess] =
     useState<string | null>(null)
 
   useEffect(() => {
@@ -157,6 +167,9 @@ export function ThreadPage({
         setSummaryError(null)
         setReplySuggestions(null)
         setReplyError(null)
+        setCreatingDraftIndex(null)
+        setDraftError(null)
+        setDraftSuccess(null)
 
         const response =
           await getEmailThread(threadId)
@@ -207,6 +220,8 @@ export function ThreadPage({
     try {
       setGeneratingReplies(true)
       setReplyError(null)
+      setDraftError(null)
+      setDraftSuccess(null)
 
       const response = await getReplySuggestions(
         threadId,
@@ -219,6 +234,36 @@ export function ThreadPage({
       )
     } finally {
       setGeneratingReplies(false)
+    }
+  }
+
+  async function handleCreateDraft(
+    subject: string,
+    body: string,
+    suggestionIndex: number,
+  ): Promise<void> {
+    try {
+      setCreatingDraftIndex(suggestionIndex)
+      setDraftError(null)
+      setDraftSuccess(null)
+
+      const response = await createDraftReply(
+        threadId,
+        {
+          subject,
+          body,
+        },
+      )
+
+      setDraftSuccess(
+        `Gmail draft created successfully. Draft ID: ${response.draft_id}`,
+      )
+    } catch {
+      setDraftError(
+        'Unable to create the Gmail draft right now.',
+      )
+    } finally {
+      setCreatingDraftIndex(null)
     }
   }
 
@@ -323,6 +368,24 @@ export function ThreadPage({
         </div>
       )}
 
+      {draftError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {draftError}
+        </div>
+      )}
+
+      {draftSuccess && (
+        <div
+          className="success-message"
+          role="status"
+        >
+          {draftSuccess}
+        </div>
+      )}
+
       {summary && (
         <section
           className="summary-card"
@@ -396,6 +459,27 @@ export function ThreadPage({
                     <p>
                       {suggestion.body}
                     </p>
+
+                    <div className="reply-suggestion-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() =>
+                          void handleCreateDraft(
+                            suggestion.subject,
+                            suggestion.body,
+                            index,
+                          )
+                        }
+                        disabled={
+                          creatingDraftIndex !== null
+                        }
+                      >
+                        {creatingDraftIndex === index
+                          ? 'Creating Draft…'
+                          : 'Create Gmail Draft'}
+                      </button>
+                    </div>
                   </article>
                 ),
               )}
