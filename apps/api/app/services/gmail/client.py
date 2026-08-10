@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+from email.message import EmailMessage as MIMEEmailMessage
 from typing import Any
 
 from google.oauth2.credentials import Credentials
@@ -21,7 +23,9 @@ class GmailClient:
         normalized_token = access_token.strip()
 
         if not normalized_token:
-            raise ValueError("Gmail access token is required.")
+            raise ValueError(
+                "Gmail access token is required."
+            )
 
         credentials = Credentials(
             token=normalized_token,
@@ -63,9 +67,15 @@ class GmailClient:
                 .execute()
             )
 
-            messages = response.get("messages", [])
+            messages = response.get(
+                "messages",
+                [],
+            )
 
-            if not isinstance(messages, list):
+            if not isinstance(
+                messages,
+                list,
+            ):
                 return []
 
             return messages
@@ -84,7 +94,9 @@ class GmailClient:
         normalized_id = message_id.strip()
 
         if not normalized_id:
-            raise ValueError("Gmail message ID is required.")
+            raise ValueError(
+                "Gmail message ID is required."
+            )
 
         try:
             return (
@@ -111,7 +123,9 @@ class GmailClient:
         normalized_id = thread_id.strip()
 
         if not normalized_id:
-            raise ValueError("Gmail thread ID is required.")
+            raise ValueError(
+                "Gmail thread ID is required."
+            )
 
         try:
             return (
@@ -127,4 +141,119 @@ class GmailClient:
         except Exception:
             raise GmailClientError(
                 "Unable to retrieve the Gmail thread."
+            ) from None
+
+    def create_draft(
+        self,
+        *,
+        to: list[str],
+        subject: str,
+        body: str,
+        thread_id: str,
+        in_reply_to: str | None = None,
+        references: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a Gmail draft in an existing thread."""
+
+        recipients = [
+            address.strip()
+            for address in to
+            if address.strip()
+        ]
+
+        if not recipients:
+            raise ValueError(
+                "At least one recipient is required."
+            )
+
+        normalized_subject = subject.strip()
+        normalized_body = body.strip()
+        normalized_thread_id = thread_id.strip()
+
+        if not normalized_subject:
+            raise ValueError(
+                "Draft subject is required."
+            )
+
+        if not normalized_body:
+            raise ValueError(
+                "Draft body is required."
+            )
+
+        if not normalized_thread_id:
+            raise ValueError(
+                "Gmail thread ID is required."
+            )
+
+        message = MIMEEmailMessage()
+        message["To"] = ", ".join(recipients)
+        message["Subject"] = normalized_subject
+
+        if in_reply_to:
+            normalized_in_reply_to = (
+                in_reply_to.strip()
+            )
+
+            if normalized_in_reply_to:
+                message["In-Reply-To"] = (
+                    normalized_in_reply_to
+                )
+
+        if references:
+            normalized_references = (
+                references.strip()
+            )
+
+            if normalized_references:
+                message["References"] = (
+                    normalized_references
+                )
+
+        message.set_content(
+            normalized_body
+        )
+
+        raw_message = (
+            base64.urlsafe_b64encode(
+                message.as_bytes()
+            )
+            .decode("utf-8")
+        )
+
+        request_body = {
+            "message": {
+                "raw": raw_message,
+                "threadId": (
+                    normalized_thread_id
+                ),
+            }
+        }
+
+        try:
+            response = (
+                self._service.users()
+                .drafts()
+                .create(
+                    userId="me",
+                    body=request_body,
+                )
+                .execute()
+            )
+
+            if not isinstance(
+                response,
+                dict,
+            ):
+                raise GmailClientError(
+                    "Gmail returned an invalid draft response."
+                )
+
+            return response
+
+        except GmailClientError:
+            raise
+
+        except Exception:
+            raise GmailClientError(
+                "Unable to create Gmail draft."
             ) from None

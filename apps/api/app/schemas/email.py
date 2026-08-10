@@ -135,3 +135,24 @@ class ReplySuggestionsResponse(BaseModel):
     suggestions: list[ReplySuggestion] = Field(
         default_factory=list,
     )
+
+class DraftReplyRequest(BaseModel):
+    """Request to create a Gmail draft reply."""
+
+    subject: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+    body: str = Field(
+        min_length=1,
+        max_length=10000,
+    )
+
+
+class DraftReplyResponse(BaseModel):
+    """Created Gmail draft reply."""
+
+    thread_id: UUID
+    draft_id: str
+    message_id: str | None = None
+    status: str

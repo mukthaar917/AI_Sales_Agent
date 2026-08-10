@@ -32,6 +32,8 @@ from app.models.email_thread import EmailThread
 from app.models.gmail_connection import GmailConnection
 from app.models.user import User
 from app.schemas.email import (
+    DraftReplyRequest,
+    DraftReplyResponse,
     EmailMessageResponse,
     EmailThreadDetail,
     EmailThreadListResponse,
@@ -46,6 +48,10 @@ from app.services.email_summary import (
 from app.services.gmail.client import (
     GmailClient,
     GmailClientError,
+)
+from app.services.gmail.drafts import (
+    GmailDraftError,
+    GmailDraftService,
 )
 from app.services.gmail.oauth import (
     GmailOAuthError,
@@ -119,7 +125,7 @@ def _get_active_gmail_connection(
 
 
 def _thread_message_order():
-    """Return consistent chronological ordering for thread messages."""
+    """Return chronological ordering for thread messages."""
 
     return (
         case(
@@ -131,6 +137,98 @@ def _thread_message_order():
         ).asc().nullslast(),
         EmailMessage.created_at.asc(),
     )
+
+
+def _latest_message_order():
+    """Return reverse chronological ordering for thread messages."""
+
+    return (
+        case(
+            (
+                EmailMessage.received_at.is_not(None),
+                EmailMessage.received_at,
+            ),
+            else_=EmailMessage.sent_at,
+        ).desc().nullslast(),
+        EmailMessage.created_at.desc(),
+    )
+
+
+def _get_valid_gmail_access_token(
+    db: Session,
+    connection: GmailConnection,
+) -> str:
+    """Return a valid Gmail access token, refreshing when necessary."""
+
+    access_token = decrypt_secret(
+        connection.access_token_encrypted
+    )
+
+    token_expired = (
+        connection.token_expiry is not None
+        and connection.token_expiry
+        <= datetime.now(timezone.utc)
+    )
+
+    if not token_expired:
+        return access_token
+
+    if not connection.refresh_token_encrypted:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Gmail must be reconnected before "
+                "this operation can continue."
+            ),
+        )
+
+    refresh_token = decrypt_secret(
+        connection.refresh_token_encrypted
+    )
+
+    refreshed_credentials = (
+        GmailOAuthService()
+        .refresh_access_token(refresh_token)
+    )
+
+    refreshed_access_token = str(
+        refreshed_credentials.get(
+            "access_token",
+            "",
+        )
+    ).strip()
+
+    if not refreshed_access_token:
+        raise GmailOAuthError(
+            "Google did not return an access token."
+        )
+
+    connection.access_token_encrypted = encrypt_secret(
+        refreshed_access_token
+    )
+
+    connection.token_expiry = (
+        refreshed_credentials.get("token_expiry")
+    )
+
+    refreshed_refresh_token = str(
+        refreshed_credentials.get(
+            "refresh_token",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if refreshed_refresh_token:
+        connection.refresh_token_encrypted = encrypt_secret(
+            refreshed_refresh_token
+        )
+
+    db.add(connection)
+    db.commit()
+    db.refresh(connection)
+
+    return refreshed_access_token
 
 
 @router.post(
@@ -161,73 +259,10 @@ def sync_gmail_inbox(
         )
 
     try:
-        access_token = decrypt_secret(
-            connection.access_token_encrypted
+        access_token = _get_valid_gmail_access_token(
+            db=db,
+            connection=connection,
         )
-
-        token_expired = (
-            connection.token_expiry is not None
-            and connection.token_expiry
-            <= datetime.now(timezone.utc)
-        )
-
-        if token_expired:
-            if not connection.refresh_token_encrypted:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=(
-                        "Gmail must be reconnected before "
-                        "synchronization."
-                    ),
-                )
-
-            refresh_token = decrypt_secret(
-                connection.refresh_token_encrypted
-            )
-
-            refreshed_credentials = (
-                GmailOAuthService()
-                .refresh_access_token(refresh_token)
-            )
-
-            refreshed_access_token = str(
-                refreshed_credentials.get(
-                    "access_token",
-                    "",
-                )
-            ).strip()
-
-            if not refreshed_access_token:
-                raise GmailOAuthError(
-                    "Google did not return an access token."
-                )
-
-            access_token = refreshed_access_token
-
-            connection.access_token_encrypted = encrypt_secret(
-                access_token
-            )
-
-            connection.token_expiry = (
-                refreshed_credentials.get("token_expiry")
-            )
-
-            refreshed_refresh_token = str(
-                refreshed_credentials.get(
-                    "refresh_token",
-                    "",
-                )
-                or ""
-            ).strip()
-
-            if refreshed_refresh_token:
-                connection.refresh_token_encrypted = (
-                    encrypt_secret(refreshed_refresh_token)
-                )
-
-            db.add(connection)
-            db.commit()
-            db.refresh(connection)
 
         gmail_client = GmailClient(
             access_token=access_token,
@@ -361,7 +396,9 @@ def list_email_threads(
                 EmailThread.snippet.ilike(
                     search_pattern
                 ),
-                EmailThread.id.in_(sender_thread_ids),
+                EmailThread.id.in_(
+                    sender_thread_ids
+                ),
             )
         )
 
@@ -386,7 +423,9 @@ def list_email_threads(
         )
 
         thread_filters.append(
-            EmailThread.id.in_(sender_thread_ids)
+            EmailThread.id.in_(
+                sender_thread_ids
+            )
         )
 
     total_statement = (
@@ -433,7 +472,9 @@ def list_email_threads(
         )
         .where(*thread_filters)
         .order_by(
-            EmailThread.last_message_at.desc().nullslast(),
+            EmailThread.last_message_at
+            .desc()
+            .nullslast(),
             EmailThread.created_at.desc(),
         )
         .offset(
@@ -650,6 +691,137 @@ def generate_reply_suggestions(
     return ReplySuggestionsResponse(
         thread_id=thread.id,
         suggestions=suggestions,
+    )
+
+
+@router.post(
+    "/threads/{thread_id}/draft-reply",
+    response_model=DraftReplyResponse,
+    status_code=status.HTTP_200_OK,
+)
+def create_thread_draft_reply(
+    thread_id: UUID,
+    payload: DraftReplyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DraftReplyResponse:
+    """Create a Gmail draft reply without sending the email."""
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    latest_message = db.scalar(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+            EmailMessage.direction == "incoming",
+        )
+        .order_by(
+            *_latest_message_order(),
+        )
+        .limit(1)
+    )
+
+    if latest_message is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "The email thread does not contain "
+                "an incoming message to reply to."
+            ),
+        )
+
+    if not latest_message.sender_email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "A reply recipient could not be "
+                "determined for this thread."
+            ),
+        )
+
+    connection = _get_active_gmail_connection(
+        db=db,
+        current_user=current_user,
+    )
+
+    if connection is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active Gmail connection was found.",
+        )
+
+    try:
+        access_token = _get_valid_gmail_access_token(
+            db=db,
+            connection=connection,
+        )
+
+        gmail_client = GmailClient(
+            access_token=access_token,
+            scopes=_deserialize_scopes(
+                connection.scopes
+            ),
+        )
+
+        result = GmailDraftService(
+            gmail_client=gmail_client,
+        ).create_thread_reply_draft(
+            thread=thread,
+            latest_message=latest_message,
+            subject=payload.subject,
+            body=payload.body,
+        )
+
+    except HTTPException:
+        raise
+
+    except (
+        EncryptionConfigurationError,
+        SecretDecryptionError,
+    ):
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored Gmail credentials are unavailable.",
+        ) from None
+
+    except GmailOAuthError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to refresh the Gmail connection.",
+        ) from None
+
+    except (
+        GmailDraftError,
+        GmailClientError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return DraftReplyResponse(
+        thread_id=thread.id,
+        draft_id=result.draft_id,
+        message_id=result.message_id,
+        status="draft",
     )
 
 
