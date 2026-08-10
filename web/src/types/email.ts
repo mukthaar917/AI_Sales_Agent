@@ -109,3 +109,14 @@ export interface SalesOpportunityResponse {
   confidence: number
   reason: string
 }
+
+export interface QuotationExtractionResponse {
+  thread_id: string
+  product: string | null
+  quantity: number | null
+  pricing_requested: boolean
+  availability_requested: boolean
+  delivery_requested: boolean
+  payment_terms_requested: boolean
+  confidence: number
+}

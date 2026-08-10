@@ -7,6 +7,7 @@ import type {
   EmailThreadListResponse,
   EmailThreadSummaryResponse,
   GmailSyncResponse,
+  QuotationExtractionResponse,
   ReplySuggestionsResponse,
   SalesOpportunityResponse,
   ThreadListParams,
@@ -79,6 +80,17 @@ export async function detectSalesOpportunity(
   const response =
     await apiClient.post<SalesOpportunityResponse>(
       `/email/threads/${threadId}/sales-opportunity`,
+    )
+
+  return response.data
+}
+
+export async function extractQuotationRequirements(
+  threadId: string,
+): Promise<QuotationExtractionResponse> {
+  const response =
+    await apiClient.post<QuotationExtractionResponse>(
+      `/email/threads/${threadId}/quotation-extraction`,
     )
 
   return response.data

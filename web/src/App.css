@@ -450,3 +450,29 @@ button:disabled {
   margin: 6px 0;
   line-height: 1.6;
 }
+
+.quotation-extraction-card {
+  margin-bottom: 24px;
+  padding: 20px;
+  border: 1px solid #d0d5dd;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.quotation-extraction-card h2 {
+  margin: 0 0 16px;
+}
+
+.quotation-requirements-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(220px, 1fr)
+  );
+  gap: 12px 20px;
+}
+
+.quotation-requirements-grid p {
+  margin: 0;
+  line-height: 1.6;
+}

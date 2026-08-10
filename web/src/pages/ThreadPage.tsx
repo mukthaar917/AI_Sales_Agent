@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify'
 import {
   createDraftReply,
   detectSalesOpportunity,
+  extractQuotationRequirements,
   getEmailThread,
   getReplySuggestions,
   summarizeThread,
@@ -11,6 +12,7 @@ import type {
   EmailMessage,
   EmailThreadDetail,
   EmailThreadSummaryResponse,
+  QuotationExtractionResponse,
   ReplySuggestionsResponse,
   SalesOpportunityResponse,
 } from '../types/email'
@@ -41,6 +43,10 @@ function getMessageDate(
     message.sent_at ??
     message.created_at
   )
+}
+
+function yesNo(value: boolean): string {
+  return value ? 'Yes' : 'No'
 }
 
 function MessageCard({
@@ -135,6 +141,9 @@ export function ThreadPage({
   const [salesOpportunity, setSalesOpportunity] =
     useState<SalesOpportunityResponse | null>(null)
 
+  const [quotationExtraction, setQuotationExtraction] =
+    useState<QuotationExtractionResponse | null>(null)
+
   const [loading, setLoading] = useState(true)
 
   const [summarizing, setSummarizing] =
@@ -144,6 +153,9 @@ export function ThreadPage({
     useState(false)
 
   const [detectingSales, setDetectingSales] =
+    useState(false)
+
+  const [extractingQuotation, setExtractingQuotation] =
     useState(false)
 
   const [creatingDraftIndex, setCreatingDraftIndex] =
@@ -159,6 +171,9 @@ export function ThreadPage({
     useState<string | null>(null)
 
   const [salesError, setSalesError] =
+    useState<string | null>(null)
+
+  const [quotationError, setQuotationError] =
     useState<string | null>(null)
 
   const [draftError, setDraftError] =
@@ -183,6 +198,9 @@ export function ThreadPage({
 
         setSalesOpportunity(null)
         setSalesError(null)
+
+        setQuotationExtraction(null)
+        setQuotationError(null)
 
         setCreatingDraftIndex(null)
         setDraftError(null)
@@ -270,6 +288,26 @@ export function ThreadPage({
       )
     } finally {
       setDetectingSales(false)
+    }
+  }
+
+  async function handleExtractQuotation(): Promise<void> {
+    try {
+      setExtractingQuotation(true)
+      setQuotationError(null)
+
+      const response =
+        await extractQuotationRequirements(
+          threadId,
+        )
+
+      setQuotationExtraction(response)
+    } catch {
+      setQuotationError(
+        'Unable to extract quotation requirements right now.',
+      )
+    } finally {
+      setExtractingQuotation(false)
     }
   }
 
@@ -387,6 +425,26 @@ export function ThreadPage({
                   ? 'Recheck Sales Opportunity'
                   : 'Detect Sales Opportunity'}
             </button>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                void handleExtractQuotation()
+              }
+              disabled={
+                loading ||
+                extractingQuotation ||
+                !thread ||
+                thread.messages.length === 0
+              }
+            >
+              {extractingQuotation
+                ? 'Extracting Requirements…'
+                : quotationExtraction
+                  ? 'Re-extract Requirements'
+                  : 'Extract Quotation Requirements'}
+            </button>
           </div>
         </div>
       </header>
@@ -433,6 +491,15 @@ export function ThreadPage({
         </div>
       )}
 
+      {quotationError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {quotationError}
+        </div>
+      )}
+
       {draftError && (
         <div
           className="error-message"
@@ -471,9 +538,7 @@ export function ThreadPage({
           </h2>
 
           <p>
-            <strong>
-              Confidence:
-            </strong>{' '}
+            <strong>Confidence:</strong>{' '}
             {Math.round(
               salesOpportunity.confidence * 100,
             )}
@@ -481,11 +546,82 @@ export function ThreadPage({
           </p>
 
           <p>
-            <strong>
-              Reason:
-            </strong>{' '}
+            <strong>Reason:</strong>{' '}
             {salesOpportunity.reason}
           </p>
+        </section>
+      )}
+
+      {quotationExtraction && (
+        <section
+          className="quotation-extraction-card"
+          aria-label="Quotation requirements"
+        >
+          <p className="eyebrow">
+            Quotation Requirements
+          </p>
+
+          <h2>
+            Extracted requirements
+          </h2>
+
+          <div className="quotation-requirements-grid">
+            <p>
+              <strong>Product:</strong>{' '}
+              {quotationExtraction.product ||
+                'Not detected'}
+            </p>
+
+            <p>
+              <strong>Quantity:</strong>{' '}
+              {quotationExtraction.quantity ??
+                'Not detected'}
+            </p>
+
+            <p>
+              <strong>
+                Pricing requested:
+              </strong>{' '}
+              {yesNo(
+                quotationExtraction.pricing_requested,
+              )}
+            </p>
+
+            <p>
+              <strong>
+                Availability requested:
+              </strong>{' '}
+              {yesNo(
+                quotationExtraction.availability_requested,
+              )}
+            </p>
+
+            <p>
+              <strong>
+                Delivery requested:
+              </strong>{' '}
+              {yesNo(
+                quotationExtraction.delivery_requested,
+              )}
+            </p>
+
+            <p>
+              <strong>
+                Payment terms requested:
+              </strong>{' '}
+              {yesNo(
+                quotationExtraction.payment_terms_requested,
+              )}
+            </p>
+
+            <p>
+              <strong>Confidence:</strong>{' '}
+              {Math.round(
+                quotationExtraction.confidence * 100,
+              )}
+              %
+            </p>
+          </div>
         </section>
       )}
 
