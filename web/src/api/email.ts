@@ -5,6 +5,7 @@ import type {
   EmailThreadListResponse,
   EmailThreadSummaryResponse,
   GmailSyncResponse,
+  ReplySuggestionsResponse,
   ThreadListParams,
 } from '../types/email'
 
@@ -50,9 +51,21 @@ export async function getEmailThread(
 export async function summarizeThread(
   threadId: string,
 ): Promise<EmailThreadSummaryResponse> {
-  const response = await apiClient.post<EmailThreadSummaryResponse>(
-    `/email/threads/${threadId}/summary`,
-  )
+  const response =
+    await apiClient.post<EmailThreadSummaryResponse>(
+      `/email/threads/${threadId}/summary`,
+    )
+
+  return response.data
+}
+
+export async function getReplySuggestions(
+  threadId: string,
+): Promise<ReplySuggestionsResponse> {
+  const response =
+    await apiClient.post<ReplySuggestionsResponse>(
+      `/email/threads/${threadId}/reply-suggestions`,
+    )
 
   return response.data
 }

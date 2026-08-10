@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import DOMPurify from 'dompurify'
 import {
   getEmailThread,
+  getReplySuggestions,
   summarizeThread,
 } from '../api/email'
 import type {
   EmailMessage,
   EmailThreadDetail,
   EmailThreadSummaryResponse,
+  ReplySuggestionsResponse,
 } from '../types/email'
 
 interface ThreadPageProps {
@@ -120,16 +122,28 @@ export function ThreadPage({
 }: ThreadPageProps) {
   const [thread, setThread] =
     useState<EmailThreadDetail | null>(null)
+
   const [summary, setSummary] =
     useState<EmailThreadSummaryResponse | null>(null)
 
+  const [replySuggestions, setReplySuggestions] =
+    useState<ReplySuggestionsResponse | null>(null)
+
   const [loading, setLoading] = useState(true)
+
   const [summarizing, setSummarizing] =
+    useState(false)
+
+  const [generatingReplies, setGeneratingReplies] =
     useState(false)
 
   const [error, setError] =
     useState<string | null>(null)
+
   const [summaryError, setSummaryError] =
+    useState<string | null>(null)
+
+  const [replyError, setReplyError] =
     useState<string | null>(null)
 
   useEffect(() => {
@@ -141,6 +155,8 @@ export function ThreadPage({
         setError(null)
         setSummary(null)
         setSummaryError(null)
+        setReplySuggestions(null)
+        setReplyError(null)
 
         const response =
           await getEmailThread(threadId)
@@ -187,6 +203,25 @@ export function ThreadPage({
     }
   }
 
+  async function handleGenerateReplies(): Promise<void> {
+    try {
+      setGeneratingReplies(true)
+      setReplyError(null)
+
+      const response = await getReplySuggestions(
+        threadId,
+      )
+
+      setReplySuggestions(response)
+    } catch {
+      setReplyError(
+        'Unable to generate reply suggestions right now.',
+      )
+    } finally {
+      setGeneratingReplies(false)
+    }
+  }
+
   return (
     <main className="thread-page">
       <header className="thread-page-header">
@@ -213,23 +248,45 @@ export function ThreadPage({
             </p>
           </div>
 
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => void handleSummarize()}
-            disabled={
-              loading ||
-              summarizing ||
-              !thread ||
-              thread.messages.length === 0
-            }
-          >
-            {summarizing
-              ? 'Summarizing…'
-              : summary
-                ? 'Regenerate Summary'
-                : 'Summarize Thread'}
-          </button>
+          <div className="thread-action-buttons">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => void handleSummarize()}
+              disabled={
+                loading ||
+                summarizing ||
+                !thread ||
+                thread.messages.length === 0
+              }
+            >
+              {summarizing
+                ? 'Summarizing…'
+                : summary
+                  ? 'Regenerate Summary'
+                  : 'Summarize Thread'}
+            </button>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                void handleGenerateReplies()
+              }
+              disabled={
+                loading ||
+                generatingReplies ||
+                !thread ||
+                thread.messages.length === 0
+              }
+            >
+              {generatingReplies
+                ? 'Generating Replies…'
+                : replySuggestions
+                  ? 'Regenerate Replies'
+                  : 'Generate Reply Suggestions'}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -257,6 +314,15 @@ export function ThreadPage({
         </div>
       )}
 
+      {replyError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {replyError}
+        </div>
+      )}
+
       {summary && (
         <section
           className="summary-card"
@@ -267,7 +333,10 @@ export function ThreadPage({
               <p className="eyebrow">
                 AI Summary
               </p>
-              <h2>Conversation overview</h2>
+
+              <h2>
+                Conversation overview
+              </h2>
             </div>
 
             <span className="summary-count">
@@ -283,6 +352,56 @@ export function ThreadPage({
           </p>
         </section>
       )}
+
+      {replySuggestions &&
+        replySuggestions.suggestions.length > 0 && (
+          <section
+            className="reply-suggestions"
+            aria-label="Reply suggestions"
+          >
+            <div className="reply-suggestions-header">
+              <div>
+                <p className="eyebrow">
+                  AI Reply Suggestions
+                </p>
+
+                <h2>
+                  Suggested replies
+                </h2>
+              </div>
+
+              <span className="summary-count">
+                {replySuggestions.suggestions.length}{' '}
+                {replySuggestions.suggestions.length === 1
+                  ? 'suggestion'
+                  : 'suggestions'}
+              </span>
+            </div>
+
+            <div className="reply-suggestion-list">
+              {replySuggestions.suggestions.map(
+                (suggestion, index) => (
+                  <article
+                    key={`${suggestion.subject}-${index}`}
+                    className="reply-suggestion-card"
+                  >
+                    <div className="reply-suggestion-number">
+                      Suggestion {index + 1}
+                    </div>
+
+                    <h3>
+                      {suggestion.subject}
+                    </h3>
+
+                    <p>
+                      {suggestion.body}
+                    </p>
+                  </article>
+                ),
+              )}
+            </div>
+          </section>
+        )}
 
       {!loading &&
         !error &&

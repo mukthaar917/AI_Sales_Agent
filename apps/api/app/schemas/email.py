@@ -112,3 +112,26 @@ class EmailThreadSummaryResponse(BaseModel):
     message_count: int = Field(
         ge=0,
     )
+
+class ReplySuggestion(BaseModel):
+    """One AI-generated reply suggestion."""
+
+    subject: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+
+    body: str = Field(
+        min_length=1,
+        max_length=10000,
+    )
+
+
+class ReplySuggestionsResponse(BaseModel):
+    """Collection of reply suggestions for one email thread."""
+
+    thread_id: UUID
+
+    suggestions: list[ReplySuggestion] = Field(
+        default_factory=list,
+    )

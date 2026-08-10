@@ -377,3 +377,59 @@ button:disabled {
     width: 100%;
   }
 }
+
+.thread-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.summary-card {
+  margin-bottom: 24px;
+  padding: 20px;
+  border: 1px solid #c7d7fe;
+  border-radius: 14px;
+  background: #f5f8ff;
+}
+
+.summary-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.summary-card-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.summary-count {
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.summary-text {
+  margin: 0;
+  color: #344054;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .thread-heading-row,
+  .summary-card-header {
+    flex-direction: column;
+  }
+
+  .thread-heading-row .primary-button {
+    width: 100%;
+  }
+}

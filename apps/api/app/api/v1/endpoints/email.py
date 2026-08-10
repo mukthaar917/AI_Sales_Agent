@@ -37,6 +37,7 @@ from app.schemas.email import (
     EmailThreadListResponse,
     EmailThreadSummary,
     EmailThreadSummaryResponse,
+    ReplySuggestionsResponse,
 )
 from app.services.email_summary import (
     EmailSummaryError,
@@ -53,6 +54,10 @@ from app.services.gmail.oauth import (
 from app.services.gmail.sync import (
     GmailSyncError,
     GmailSyncService,
+)
+from app.services.reply_suggestions import (
+    ReplySuggestionError,
+    ReplySuggestionService,
 )
 
 
@@ -114,7 +119,7 @@ def _get_active_gmail_connection(
 
 
 def _thread_message_order():
-    """Return the consistent chronological ordering for thread messages."""
+    """Return consistent chronological ordering for thread messages."""
 
     return (
         case(
@@ -590,6 +595,61 @@ def summarize_email_thread(
         thread_id=thread.id,
         summary=summary,
         message_count=len(messages),
+    )
+
+
+@router.post(
+    "/threads/{thread_id}/reply-suggestions",
+    response_model=ReplySuggestionsResponse,
+    status_code=status.HTTP_200_OK,
+)
+def generate_reply_suggestions(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ReplySuggestionsResponse:
+    """Generate reviewable reply suggestions for one email thread."""
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    messages = db.scalars(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
+        .order_by(
+            *_thread_message_order(),
+        )
+    ).all()
+
+    try:
+        suggestions = ReplySuggestionService().generate(
+            thread=thread,
+            messages=list(messages),
+        )
+    except ReplySuggestionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return ReplySuggestionsResponse(
+        thread_id=thread.id,
+        suggestions=suggestions,
     )
 
 

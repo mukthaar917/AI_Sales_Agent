@@ -77,3 +77,13 @@ export interface EmailThreadSummaryResponse {
   summary: string
   message_count: number
 }
+
+export interface ReplySuggestion {
+  subject: string
+  body: string
+}
+
+export interface ReplySuggestionsResponse {
+  thread_id: string
+  suggestions: ReplySuggestion[]
+}
