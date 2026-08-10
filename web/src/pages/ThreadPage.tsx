@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import DOMPurify from 'dompurify'
 import {
   createDraftReply,
+  detectSalesOpportunity,
   getEmailThread,
   getReplySuggestions,
   summarizeThread,
@@ -11,6 +12,7 @@ import type {
   EmailThreadDetail,
   EmailThreadSummaryResponse,
   ReplySuggestionsResponse,
+  SalesOpportunityResponse,
 } from '../types/email'
 
 interface ThreadPageProps {
@@ -130,12 +132,18 @@ export function ThreadPage({
   const [replySuggestions, setReplySuggestions] =
     useState<ReplySuggestionsResponse | null>(null)
 
+  const [salesOpportunity, setSalesOpportunity] =
+    useState<SalesOpportunityResponse | null>(null)
+
   const [loading, setLoading] = useState(true)
 
   const [summarizing, setSummarizing] =
     useState(false)
 
   const [generatingReplies, setGeneratingReplies] =
+    useState(false)
+
+  const [detectingSales, setDetectingSales] =
     useState(false)
 
   const [creatingDraftIndex, setCreatingDraftIndex] =
@@ -148,6 +156,9 @@ export function ThreadPage({
     useState<string | null>(null)
 
   const [replyError, setReplyError] =
+    useState<string | null>(null)
+
+  const [salesError, setSalesError] =
     useState<string | null>(null)
 
   const [draftError, setDraftError] =
@@ -163,10 +174,16 @@ export function ThreadPage({
       try {
         setLoading(true)
         setError(null)
+
         setSummary(null)
         setSummaryError(null)
+
         setReplySuggestions(null)
         setReplyError(null)
+
+        setSalesOpportunity(null)
+        setSalesError(null)
+
         setCreatingDraftIndex(null)
         setDraftError(null)
         setDraftSuccess(null)
@@ -234,6 +251,25 @@ export function ThreadPage({
       )
     } finally {
       setGeneratingReplies(false)
+    }
+  }
+
+  async function handleDetectSalesOpportunity(): Promise<void> {
+    try {
+      setDetectingSales(true)
+      setSalesError(null)
+
+      const response = await detectSalesOpportunity(
+        threadId,
+      )
+
+      setSalesOpportunity(response)
+    } catch {
+      setSalesError(
+        'Unable to detect sales opportunity right now.',
+      )
+    } finally {
+      setDetectingSales(false)
     }
   }
 
@@ -331,6 +367,26 @@ export function ThreadPage({
                   ? 'Regenerate Replies'
                   : 'Generate Reply Suggestions'}
             </button>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                void handleDetectSalesOpportunity()
+              }
+              disabled={
+                loading ||
+                detectingSales ||
+                !thread ||
+                thread.messages.length === 0
+              }
+            >
+              {detectingSales
+                ? 'Analyzing Sales…'
+                : salesOpportunity
+                  ? 'Recheck Sales Opportunity'
+                  : 'Detect Sales Opportunity'}
+            </button>
           </div>
         </div>
       </header>
@@ -368,6 +424,15 @@ export function ThreadPage({
         </div>
       )}
 
+      {salesError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {salesError}
+        </div>
+      )}
+
       {draftError && (
         <div
           className="error-message"
@@ -384,6 +449,44 @@ export function ThreadPage({
         >
           {draftSuccess}
         </div>
+      )}
+
+      {salesOpportunity && (
+        <section
+          className="sales-opportunity-card"
+          aria-label="Sales opportunity result"
+        >
+          <p className="eyebrow">
+            Sales Opportunity
+          </p>
+
+          <h2>
+            {salesOpportunity.classification ===
+            'sales_opportunity'
+              ? 'Sales Opportunity Detected'
+              : salesOpportunity.classification ===
+                  'non_sales'
+                ? 'Not a Sales Opportunity'
+                : 'Unclear Opportunity'}
+          </h2>
+
+          <p>
+            <strong>
+              Confidence:
+            </strong>{' '}
+            {Math.round(
+              salesOpportunity.confidence * 100,
+            )}
+            %
+          </p>
+
+          <p>
+            <strong>
+              Reason:
+            </strong>{' '}
+            {salesOpportunity.reason}
+          </p>
+        </section>
       )}
 
       {summary && (

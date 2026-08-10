@@ -8,6 +8,7 @@ import type {
   EmailThreadSummaryResponse,
   GmailSyncResponse,
   ReplySuggestionsResponse,
+  SalesOpportunityResponse,
   ThreadListParams,
 } from '../types/email'
 
@@ -67,6 +68,17 @@ export async function getReplySuggestions(
   const response =
     await apiClient.post<ReplySuggestionsResponse>(
       `/email/threads/${threadId}/reply-suggestions`,
+    )
+
+  return response.data
+}
+
+export async function detectSalesOpportunity(
+  threadId: string,
+): Promise<SalesOpportunityResponse> {
+  const response =
+    await apiClient.post<SalesOpportunityResponse>(
+      `/email/threads/${threadId}/sales-opportunity`,
     )
 
   return response.data

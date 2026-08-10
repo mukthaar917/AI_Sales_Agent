@@ -99,3 +99,13 @@ export interface DraftReplyResponse {
   message_id: string | null
   status: string
 }
+
+export interface SalesOpportunityResponse {
+  thread_id: string
+  classification:
+    | 'sales_opportunity'
+    | 'non_sales'
+    | 'unknown'
+  confidence: number
+  reason: string
+}

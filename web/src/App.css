@@ -433,3 +433,20 @@ button:disabled {
     width: 100%;
   }
 }
+
+.sales-opportunity-card {
+  margin-bottom: 24px;
+  padding: 20px;
+  border: 1px solid #d0d5dd;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.sales-opportunity-card h2 {
+  margin: 0 0 12px;
+}
+
+.sales-opportunity-card p {
+  margin: 6px 0;
+  line-height: 1.6;
+}
