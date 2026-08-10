@@ -173,3 +173,24 @@ class SalesOpportunityResponse(BaseModel):
         min_length=1,
         max_length=1000,
     )
+
+class QuotationExtractionResponse(BaseModel):
+    """Structured quotation requirements extracted from an email thread."""
+
+    thread_id: UUID
+    product: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+    quantity: int | None = Field(
+        default=None,
+        ge=1,
+    )
+    pricing_requested: bool
+    availability_requested: bool
+    delivery_requested: bool
+    payment_terms_requested: bool
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )

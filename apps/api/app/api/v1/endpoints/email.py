@@ -39,6 +39,7 @@ from app.schemas.email import (
     EmailThreadListResponse,
     EmailThreadSummary,
     EmailThreadSummaryResponse,
+    QuotationExtractionResponse,
     ReplySuggestionsResponse,
     SalesOpportunityResponse,
 )
@@ -61,6 +62,10 @@ from app.services.gmail.oauth import (
 from app.services.gmail.sync import (
     GmailSyncError,
     GmailSyncService,
+)
+from app.services.quotation_extraction import (
+    QuotationExtractionError,
+    QuotationExtractionService,
 )
 from app.services.reply_suggestions import (
     ReplySuggestionError,
@@ -744,6 +749,69 @@ def detect_sales_opportunity(
         classification=result.classification,
         confidence=result.confidence,
         reason=result.reason,
+    )
+
+
+@router.post(
+    "/threads/{thread_id}/quotation-extraction",
+    response_model=QuotationExtractionResponse,
+    status_code=status.HTTP_200_OK,
+)
+def extract_quotation_requirements(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> QuotationExtractionResponse:
+    """Extract quotation requirements from an email thread."""
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    messages = db.scalars(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
+        .order_by(
+            *_thread_message_order(),
+        )
+    ).all()
+
+    try:
+        result = QuotationExtractionService().extract(
+            thread=thread,
+            messages=list(messages),
+        )
+    except QuotationExtractionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return QuotationExtractionResponse(
+        thread_id=thread.id,
+        product=result.product,
+        quantity=result.quantity,
+        pricing_requested=result.pricing_requested,
+        availability_requested=result.availability_requested,
+        delivery_requested=result.delivery_requested,
+        payment_terms_requested=(
+            result.payment_terms_requested
+        ),
+        confidence=result.confidence,
     )
 
 
