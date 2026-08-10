@@ -156,3 +156,20 @@ class DraftReplyResponse(BaseModel):
     draft_id: str
     message_id: str | None = None
     status: str
+
+class SalesOpportunityResponse(BaseModel):
+    """Sales-opportunity classification for one email thread."""
+
+    thread_id: UUID
+    classification: str = Field(
+        min_length=1,
+        max_length=50,
+    )
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+    reason: str = Field(
+        min_length=1,
+        max_length=1000,
+    )

@@ -40,6 +40,7 @@ from app.schemas.email import (
     EmailThreadSummary,
     EmailThreadSummaryResponse,
     ReplySuggestionsResponse,
+    SalesOpportunityResponse,
 )
 from app.services.email_summary import (
     EmailSummaryError,
@@ -64,6 +65,10 @@ from app.services.gmail.sync import (
 from app.services.reply_suggestions import (
     ReplySuggestionError,
     ReplySuggestionService,
+)
+from app.services.sales_opportunity import (
+    SalesOpportunityError,
+    SalesOpportunityService,
 )
 
 
@@ -331,10 +336,7 @@ def sync_gmail_inbox(
     status_code=status.HTTP_200_OK,
 )
 def list_email_threads(
-    page: int = Query(
-        default=1,
-        ge=1,
-    ),
+    page: int = Query(default=1, ge=1),
     page_size: int = Query(
         default=20,
         ge=1,
@@ -350,9 +352,7 @@ def list_email_threads(
         min_length=1,
         max_length=320,
     ),
-    unread: bool | None = Query(
-        default=None,
-    ),
+    unread: bool | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> EmailThreadListResponse:
@@ -490,9 +490,7 @@ def list_email_threads(
     items = [
         EmailThreadSummary(
             id=thread.id,
-            provider_thread_id=(
-                thread.provider_thread_id
-            ),
+            provider_thread_id=thread.provider_thread_id,
             subject=thread.subject,
             snippet=thread.snippet,
             participant_emails=(
@@ -562,9 +560,7 @@ def get_email_thread(
 
     return EmailThreadDetail(
         id=thread.id,
-        provider_thread_id=(
-            thread.provider_thread_id
-        ),
+        provider_thread_id=thread.provider_thread_id,
         subject=thread.subject,
         snippet=thread.snippet,
         participant_emails=(
@@ -691,6 +687,63 @@ def generate_reply_suggestions(
     return ReplySuggestionsResponse(
         thread_id=thread.id,
         suggestions=suggestions,
+    )
+
+
+@router.post(
+    "/threads/{thread_id}/sales-opportunity",
+    response_model=SalesOpportunityResponse,
+    status_code=status.HTTP_200_OK,
+)
+def detect_sales_opportunity(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SalesOpportunityResponse:
+    """Classify whether an email thread is a sales opportunity."""
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    messages = db.scalars(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
+        .order_by(
+            *_thread_message_order(),
+        )
+    ).all()
+
+    try:
+        result = SalesOpportunityService().detect(
+            thread=thread,
+            messages=list(messages),
+        )
+    except SalesOpportunityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return SalesOpportunityResponse(
+        thread_id=thread.id,
+        classification=result.classification,
+        confidence=result.confidence,
+        reason=result.reason,
     )
 
 
