@@ -120,3 +120,49 @@ export interface QuotationExtractionResponse {
   payment_terms_requested: boolean
   confidence: number
 }
+
+export interface QuotationPreviewResponse {
+  thread_id: string
+
+  customer_id: string
+  customer_name: string
+  customer_email: string | null
+
+  product_id: string
+  product_name: string
+
+  quantity: string
+  unit: string
+  unit_price: string
+  currency: string
+  tax_rate: string
+
+  subtotal: string
+  tax_amount: string
+  total_amount: string
+}
+
+export interface CreateQuotationFromThreadResponse {
+  thread_id: string
+  quotation_id: string
+  quotation_number: string
+  status: string
+}
+
+export interface QuotationDraftRequest {
+  quotation_id: string
+}
+
+export interface QuotationDraftResponse {
+  thread_id: string
+  quotation_id: string
+  quotation_number: string
+
+  draft_id: string
+  message_id: string | null
+
+  recipient: string
+  attachment_filename: string
+
+  status: string
+}

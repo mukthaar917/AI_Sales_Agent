@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type {
+  CreateQuotationFromThreadResponse,
   DraftReplyRequest,
   DraftReplyResponse,
   EmailMessage,
@@ -7,7 +8,10 @@ import type {
   EmailThreadListResponse,
   EmailThreadSummaryResponse,
   GmailSyncResponse,
+  QuotationDraftRequest,
+  QuotationDraftResponse,
   QuotationExtractionResponse,
+  QuotationPreviewResponse,
   ReplySuggestionsResponse,
   SalesOpportunityResponse,
   ThreadListParams,
@@ -32,12 +36,13 @@ export async function syncInbox(
 export async function getEmailThreads(
   params: ThreadListParams = {},
 ): Promise<EmailThreadListResponse> {
-  const response = await apiClient.get<EmailThreadListResponse>(
-    '/email/threads',
-    {
-      params,
-    },
-  )
+  const response =
+    await apiClient.get<EmailThreadListResponse>(
+      '/email/threads',
+      {
+        params,
+      },
+    )
 
   return response.data
 }
@@ -92,6 +97,54 @@ export async function extractQuotationRequirements(
     await apiClient.post<QuotationExtractionResponse>(
       `/email/threads/${threadId}/quotation-extraction`,
     )
+
+  return response.data
+}
+
+export async function previewQuotation(
+  threadId: string,
+): Promise<QuotationPreviewResponse> {
+  const response =
+    await apiClient.post<QuotationPreviewResponse>(
+      `/email/threads/${threadId}/quotation-preview`,
+    )
+
+  return response.data
+}
+
+export async function createQuotationFromThread(
+  threadId: string,
+): Promise<CreateQuotationFromThreadResponse> {
+  const response =
+    await apiClient.post<CreateQuotationFromThreadResponse>(
+      `/email/threads/${threadId}/quotation`,
+    )
+
+  return response.data
+}
+
+export async function createQuotationDraft(
+  threadId: string,
+  payload: QuotationDraftRequest,
+): Promise<QuotationDraftResponse> {
+  const response =
+    await apiClient.post<QuotationDraftResponse>(
+      `/email/threads/${threadId}/quotation-draft`,
+      payload,
+    )
+
+  return response.data
+}
+
+export async function downloadQuotationPdf(
+  quotationId: string,
+): Promise<Blob> {
+  const response = await apiClient.get<Blob>(
+    `/quotations/${quotationId}/pdf`,
+    {
+      responseType: 'blob',
+    },
+  )
 
   return response.data
 }

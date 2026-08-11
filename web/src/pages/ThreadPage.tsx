@@ -2,17 +2,24 @@ import { useEffect, useMemo, useState } from 'react'
 import DOMPurify from 'dompurify'
 import {
   createDraftReply,
+  createQuotationDraft,
+  createQuotationFromThread,
   detectSalesOpportunity,
+  downloadQuotationPdf,
   extractQuotationRequirements,
   getEmailThread,
   getReplySuggestions,
+  previewQuotation,
   summarizeThread,
 } from '../api/email'
 import type {
+  CreateQuotationFromThreadResponse,
   EmailMessage,
   EmailThreadDetail,
   EmailThreadSummaryResponse,
+  QuotationDraftResponse,
   QuotationExtractionResponse,
+  QuotationPreviewResponse,
   ReplySuggestionsResponse,
   SalesOpportunityResponse,
 } from '../types/email'
@@ -47,6 +54,27 @@ function getMessageDate(
 
 function yesNo(value: boolean): string {
   return value ? 'Yes' : 'No'
+}
+
+function formatMoney(
+  value: string,
+  currency: string,
+): string {
+  const amount = Number(value)
+
+  if (Number.isNaN(amount)) {
+    return `${currency} ${value}`
+  }
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+    }).format(amount)
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`
+  }
 }
 
 function MessageCard({
@@ -144,7 +172,19 @@ export function ThreadPage({
   const [quotationExtraction, setQuotationExtraction] =
     useState<QuotationExtractionResponse | null>(null)
 
-  const [loading, setLoading] = useState(true)
+  const [quotationPreview, setQuotationPreview] =
+    useState<QuotationPreviewResponse | null>(null)
+
+  const [createdQuotation, setCreatedQuotation] =
+    useState<CreateQuotationFromThreadResponse | null>(
+      null,
+    )
+
+  const [quotationDraft, setQuotationDraft] =
+    useState<QuotationDraftResponse | null>(null)
+
+  const [loading, setLoading] =
+    useState(true)
 
   const [summarizing, setSummarizing] =
     useState(false)
@@ -156,6 +196,18 @@ export function ThreadPage({
     useState(false)
 
   const [extractingQuotation, setExtractingQuotation] =
+    useState(false)
+
+  const [previewingQuotation, setPreviewingQuotation] =
+    useState(false)
+
+  const [creatingQuotation, setCreatingQuotation] =
+    useState(false)
+
+  const [downloadingPdf, setDownloadingPdf] =
+    useState(false)
+
+  const [creatingQuotationDraft, setCreatingQuotationDraft] =
     useState(false)
 
   const [creatingDraftIndex, setCreatingDraftIndex] =
@@ -174,6 +226,15 @@ export function ThreadPage({
     useState<string | null>(null)
 
   const [quotationError, setQuotationError] =
+    useState<string | null>(null)
+
+  const [previewError, setPreviewError] =
+    useState<string | null>(null)
+
+  const [createQuotationError, setCreateQuotationError] =
+    useState<string | null>(null)
+
+  const [quotationDraftError, setQuotationDraftError] =
     useState<string | null>(null)
 
   const [draftError, setDraftError] =
@@ -201,6 +262,15 @@ export function ThreadPage({
 
         setQuotationExtraction(null)
         setQuotationError(null)
+
+        setQuotationPreview(null)
+        setPreviewError(null)
+
+        setCreatedQuotation(null)
+        setCreateQuotationError(null)
+
+        setQuotationDraft(null)
+        setQuotationDraftError(null)
 
         setCreatingDraftIndex(null)
         setDraftError(null)
@@ -277,9 +347,8 @@ export function ThreadPage({
       setDetectingSales(true)
       setSalesError(null)
 
-      const response = await detectSalesOpportunity(
-        threadId,
-      )
+      const response =
+        await detectSalesOpportunity(threadId)
 
       setSalesOpportunity(response)
     } catch {
@@ -296,6 +365,15 @@ export function ThreadPage({
       setExtractingQuotation(true)
       setQuotationError(null)
 
+      setQuotationPreview(null)
+      setPreviewError(null)
+
+      setCreatedQuotation(null)
+      setCreateQuotationError(null)
+
+      setQuotationDraft(null)
+      setQuotationDraftError(null)
+
       const response =
         await extractQuotationRequirements(
           threadId,
@@ -308,6 +386,117 @@ export function ThreadPage({
       )
     } finally {
       setExtractingQuotation(false)
+    }
+  }
+
+  async function handlePreviewQuotation(): Promise<void> {
+    try {
+      setPreviewingQuotation(true)
+      setPreviewError(null)
+
+      setCreatedQuotation(null)
+      setCreateQuotationError(null)
+
+      setQuotationDraft(null)
+      setQuotationDraftError(null)
+
+      const response = await previewQuotation(
+        threadId,
+      )
+
+      setQuotationPreview(response)
+    } catch {
+      setPreviewError(
+        'Unable to prepare the quotation preview. Confirm the customer and product exist in the catalog.',
+      )
+    } finally {
+      setPreviewingQuotation(false)
+    }
+  }
+
+  async function handleCreateQuotation(): Promise<void> {
+    if (!quotationPreview) {
+      return
+    }
+
+    try {
+      setCreatingQuotation(true)
+      setCreateQuotationError(null)
+      setQuotationDraft(null)
+      setQuotationDraftError(null)
+
+      const response =
+        await createQuotationFromThread(threadId)
+
+      setCreatedQuotation(response)
+    } catch {
+      setCreateQuotationError(
+        'Unable to create the quotation right now.',
+      )
+    } finally {
+      setCreatingQuotation(false)
+    }
+  }
+
+  async function handleDownloadPdf(): Promise<void> {
+    if (!createdQuotation) {
+      return
+    }
+
+    try {
+      setDownloadingPdf(true)
+      setCreateQuotationError(null)
+
+      const pdf = await downloadQuotationPdf(
+        createdQuotation.quotation_id,
+      )
+
+      const url = window.URL.createObjectURL(pdf)
+
+      const anchor = document.createElement('a')
+
+      anchor.href = url
+      anchor.download =
+        `${createdQuotation.quotation_number}.pdf`
+
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+
+      window.URL.revokeObjectURL(url)
+    } catch {
+      setCreateQuotationError(
+        'Unable to download the quotation PDF.',
+      )
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
+
+  async function handleCreateQuotationDraft(): Promise<void> {
+    if (!createdQuotation) {
+      return
+    }
+
+    try {
+      setCreatingQuotationDraft(true)
+      setQuotationDraftError(null)
+
+      const response = await createQuotationDraft(
+        threadId,
+        {
+          quotation_id:
+            createdQuotation.quotation_id,
+        },
+      )
+
+      setQuotationDraft(response)
+    } catch {
+      setQuotationDraftError(
+        'Unable to create the Gmail quotation draft right now.',
+      )
+    } finally {
+      setCreatingQuotationDraft(false)
     }
   }
 
@@ -371,7 +560,9 @@ export function ThreadPage({
             <button
               type="button"
               className="primary-button"
-              onClick={() => void handleSummarize()}
+              onClick={() =>
+                void handleSummarize()
+              }
               disabled={
                 loading ||
                 summarizing ||
@@ -500,6 +691,33 @@ export function ThreadPage({
         </div>
       )}
 
+      {previewError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {previewError}
+        </div>
+      )}
+
+      {createQuotationError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {createQuotationError}
+        </div>
+      )}
+
+      {quotationDraftError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {quotationDraftError}
+        </div>
+      )}
+
       {draftError && (
         <div
           className="error-message"
@@ -515,6 +733,23 @@ export function ThreadPage({
           role="status"
         >
           {draftSuccess}
+        </div>
+      )}
+
+      {quotationDraft && (
+        <div
+          className="success-message"
+          role="status"
+        >
+          Gmail quotation draft created successfully.
+          {' '}
+          {quotationDraft.attachment_filename}
+          {' '}
+          is attached for
+          {' '}
+          {quotationDraft.recipient}.
+          {' '}
+          Review it in Gmail before sending.
         </div>
       )}
 
@@ -622,6 +857,192 @@ export function ThreadPage({
               %
             </p>
           </div>
+
+          <div className="quotation-workflow-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() =>
+                void handlePreviewQuotation()
+              }
+              disabled={previewingQuotation}
+            >
+              {previewingQuotation
+                ? 'Preparing Preview…'
+                : quotationPreview
+                  ? 'Refresh Quotation Preview'
+                  : 'Preview Quotation'}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {quotationPreview && (
+        <section
+          className="quotation-preview-card"
+          aria-label="Quotation preview"
+        >
+          <p className="eyebrow">
+            Quotation Preview
+          </p>
+
+          <h2>
+            Review before creating
+          </h2>
+
+          <div className="quotation-requirements-grid">
+            <p>
+              <strong>Customer:</strong>{' '}
+              {quotationPreview.customer_name}
+            </p>
+
+            <p>
+              <strong>Email:</strong>{' '}
+              {quotationPreview.customer_email ||
+                'Not available'}
+            </p>
+
+            <p>
+              <strong>Product:</strong>{' '}
+              {quotationPreview.product_name}
+            </p>
+
+            <p>
+              <strong>Quantity:</strong>{' '}
+              {quotationPreview.quantity}
+            </p>
+
+            <p>
+              <strong>Unit:</strong>{' '}
+              {quotationPreview.unit}
+            </p>
+
+            <p>
+              <strong>Unit price:</strong>{' '}
+              {formatMoney(
+                quotationPreview.unit_price,
+                quotationPreview.currency,
+              )}
+            </p>
+
+            <p>
+              <strong>Tax rate:</strong>{' '}
+              {quotationPreview.tax_rate}%
+            </p>
+
+            <p>
+              <strong>Subtotal:</strong>{' '}
+              {formatMoney(
+                quotationPreview.subtotal,
+                quotationPreview.currency,
+              )}
+            </p>
+
+            <p>
+              <strong>Tax:</strong>{' '}
+              {formatMoney(
+                quotationPreview.tax_amount,
+                quotationPreview.currency,
+              )}
+            </p>
+
+            <p>
+              <strong>Total:</strong>{' '}
+              {formatMoney(
+                quotationPreview.total_amount,
+                quotationPreview.currency,
+              )}
+            </p>
+          </div>
+
+          <p className="quotation-review-warning">
+            Review the customer, product, quantity,
+            pricing and tax before creating the quotation.
+          </p>
+
+          <div className="quotation-workflow-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() =>
+                void handleCreateQuotation()
+              }
+              disabled={
+                creatingQuotation ||
+                createdQuotation !== null
+              }
+            >
+              {creatingQuotation
+                ? 'Creating Quotation…'
+                : createdQuotation
+                  ? 'Quotation Created'
+                  : 'Create Quotation'}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {createdQuotation && (
+        <section
+          className="quotation-created-card"
+          aria-label="Created quotation"
+        >
+          <p className="eyebrow">
+            Quotation Created
+          </p>
+
+          <h2>
+            {createdQuotation.quotation_number}
+          </h2>
+
+          <p>
+            <strong>Status:</strong>{' '}
+            {createdQuotation.status}
+          </p>
+
+          <p>
+            The quotation is saved as a draft.
+            You can download the PDF or create a Gmail
+            draft with the PDF attached.
+          </p>
+
+          <div className="quotation-workflow-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                void handleDownloadPdf()
+              }
+              disabled={downloadingPdf}
+            >
+              {downloadingPdf
+                ? 'Downloading PDF…'
+                : 'Download Quotation PDF'}
+            </button>
+
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() =>
+                void handleCreateQuotationDraft()
+              }
+              disabled={
+                creatingQuotationDraft ||
+                quotationDraft !== null
+              }
+            >
+              {creatingQuotationDraft
+                ? 'Creating Gmail Draft…'
+                : quotationDraft
+                  ? 'Gmail Draft Created'
+                  : 'Create Gmail Draft with PDF'}
+            </button>
+          </div>
+
+          <p className="quotation-review-warning">
+            Creating the Gmail draft does not send the
+            email. Review it in Gmail and send manually.
+          </p>
         </section>
       )}
 
