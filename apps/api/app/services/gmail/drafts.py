@@ -36,6 +36,9 @@ class GmailDraftService:
         latest_message: EmailMessage,
         subject: str,
         body: str,
+        attachments: list[
+            tuple[str, bytes, str]
+        ] | None = None,
     ) -> GmailDraftResult:
         """Create a draft reply in the existing Gmail thread."""
 
@@ -75,6 +78,7 @@ class GmailDraftService:
                 thread_id=thread.provider_thread_id,
                 in_reply_to=in_reply_to,
                 references=references,
+                attachments=attachments,
             )
         except Exception as exc:
             raise GmailDraftError(

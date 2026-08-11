@@ -72,10 +72,7 @@ class GmailClient:
                 [],
             )
 
-            if not isinstance(
-                messages,
-                list,
-            ):
+            if not isinstance(messages, list):
                 return []
 
             return messages
@@ -152,8 +149,16 @@ class GmailClient:
         thread_id: str,
         in_reply_to: str | None = None,
         references: str | None = None,
+        attachments: list[
+            tuple[str, bytes, str]
+        ] | None = None,
     ) -> dict[str, Any]:
-        """Create a Gmail draft in an existing thread."""
+        """
+        Create a Gmail draft in an existing thread.
+
+        attachments contains:
+            (filename, content_bytes, mime_type)
+        """
 
         recipients = [
             address.strip()
@@ -186,6 +191,7 @@ class GmailClient:
             )
 
         message = MIMEEmailMessage()
+
         message["To"] = ", ".join(recipients)
         message["Subject"] = normalized_subject
 
@@ -213,6 +219,48 @@ class GmailClient:
             normalized_body
         )
 
+        for attachment in attachments or []:
+            filename, content, mime_type = attachment
+
+            normalized_filename = filename.strip()
+            normalized_mime_type = mime_type.strip().lower()
+
+            if not normalized_filename:
+                raise ValueError(
+                    "Attachment filename is required."
+                )
+
+            if not isinstance(content, bytes):
+                raise ValueError(
+                    "Attachment content must be bytes."
+                )
+
+            if not content:
+                raise ValueError(
+                    "Attachment content cannot be empty."
+                )
+
+            if "/" not in normalized_mime_type:
+                raise ValueError(
+                    "Attachment MIME type is invalid."
+                )
+
+            maintype, subtype = (
+                normalized_mime_type.split("/", 1)
+            )
+
+            if not maintype or not subtype:
+                raise ValueError(
+                    "Attachment MIME type is invalid."
+                )
+
+            message.add_attachment(
+                content,
+                maintype=maintype,
+                subtype=subtype,
+                filename=normalized_filename,
+            )
+
         raw_message = (
             base64.urlsafe_b64encode(
                 message.as_bytes()
@@ -223,9 +271,7 @@ class GmailClient:
         request_body = {
             "message": {
                 "raw": raw_message,
-                "threadId": (
-                    normalized_thread_id
-                ),
+                "threadId": normalized_thread_id,
             }
         }
 
@@ -240,10 +286,7 @@ class GmailClient:
                 .execute()
             )
 
-            if not isinstance(
-                response,
-                dict,
-            ):
+            if not isinstance(response, dict):
                 raise GmailClientError(
                     "Gmail returned an invalid draft response."
                 )

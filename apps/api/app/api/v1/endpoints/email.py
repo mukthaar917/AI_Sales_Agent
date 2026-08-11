@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import (
@@ -32,6 +33,7 @@ from app.models.email_thread import EmailThread
 from app.models.gmail_connection import GmailConnection
 from app.models.user import User
 from app.schemas.email import (
+    CreateQuotationFromThreadResponse,
     DraftReplyRequest,
     DraftReplyResponse,
     EmailMessageResponse,
@@ -39,10 +41,16 @@ from app.schemas.email import (
     EmailThreadListResponse,
     EmailThreadSummary,
     EmailThreadSummaryResponse,
+    QuotationDraftRequest,
+    QuotationDraftResponse,
     QuotationExtractionResponse,
     QuotationPreviewResponse,
     ReplySuggestionsResponse,
     SalesOpportunityResponse,
+)
+from app.schemas.quotation import (
+    QuotationCreate,
+    QuotationItemCreate,
 )
 from app.services.email_summary import (
     EmailSummaryError,
@@ -68,9 +76,17 @@ from app.services.quotation_extraction import (
     QuotationExtractionError,
     QuotationExtractionService,
 )
+from app.services.quotation_pdf_service import (
+    generate_quotation_pdf,
+)
 from app.services.quotation_preview import (
     QuotationPreviewError,
     QuotationPreviewService,
+)
+from app.services.quotation_service import (
+    create_quotation,
+    get_customer_for_organization,
+    get_quotation_by_id,
 )
 from app.services.reply_suggestions import (
     ReplySuggestionError,
@@ -934,6 +950,422 @@ def preview_quotation_from_thread(
         subtotal=preview.subtotal,
         tax_amount=preview.tax_amount,
         total_amount=preview.total_amount,
+    )
+
+
+@router.post(
+    "/threads/{thread_id}/quotation",
+    response_model=CreateQuotationFromThreadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_quotation_from_thread(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CreateQuotationFromThreadResponse:
+    """Create a draft quotation from a reviewed RFQ email thread."""
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    messages = db.scalars(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
+        .order_by(
+            *_thread_message_order(),
+        )
+    ).all()
+
+    if not messages:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Email thread does not contain any messages.",
+        )
+
+    incoming_messages = [
+        message
+        for message in messages
+        if (
+            message.direction == "incoming"
+            and message.sender_email
+        )
+    ]
+
+    if not incoming_messages:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unable to determine the RFQ sender.",
+        )
+
+    sender_email = incoming_messages[-1].sender_email
+
+    if sender_email is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unable to determine the RFQ sender email.",
+        )
+
+    try:
+        extraction = QuotationExtractionService().extract(
+            thread=thread,
+            messages=list(messages),
+        )
+
+        if (
+            extraction.product is None
+            or extraction.quantity is None
+        ):
+            raise QuotationPreviewError(
+                "Product or quantity could not be extracted."
+            )
+
+        preview = QuotationPreviewService(
+            db=db,
+        ).prepare(
+            current_user=current_user,
+            sender_email=sender_email,
+            product_name=extraction.product,
+            quantity=extraction.quantity,
+        )
+
+        today = date.today()
+
+        quotation_in = QuotationCreate(
+            customer_id=UUID(preview.customer_id),
+            issue_date=today,
+            expiry_date=today + timedelta(days=14),
+            currency=preview.currency,
+            notes=(
+                f"Created from email thread {thread.id}. "
+                f"Original subject: "
+                f"{thread.subject or 'No subject'}"
+            ),
+            terms=(
+                "Draft quotation created from reviewed "
+                "RFQ requirements."
+            ),
+            items=[
+                QuotationItemCreate(
+                    product_id=UUID(preview.product_id),
+                    description=preview.product_name,
+                    quantity=preview.quantity,
+                    unit=preview.unit,
+                    unit_price=preview.unit_price,
+                    discount_rate=Decimal("0.00"),
+                    tax_rate=preview.tax_rate,
+                    sort_order=1,
+                )
+            ],
+        )
+
+        quotation = create_quotation(
+            db=db,
+            quotation_in=quotation_in,
+            current_user=current_user,
+        )
+
+    except (
+        QuotationExtractionError,
+        QuotationPreviewError,
+        ValueError,
+    ) as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    except SQLAlchemyError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create the quotation.",
+        ) from None
+
+    return CreateQuotationFromThreadResponse(
+        thread_id=thread.id,
+        quotation_id=quotation.id,
+        quotation_number=quotation.quotation_number,
+        status=quotation.status.value,
+    )
+
+
+@router.post(
+    "/threads/{thread_id}/quotation-draft",
+    response_model=QuotationDraftResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_quotation_draft(
+    thread_id: UUID,
+    payload: QuotationDraftRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> QuotationDraftResponse:
+    """
+    Create a Gmail draft reply with a quotation PDF attached.
+
+    This creates a draft only and does not send the email.
+    """
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    latest_message = db.scalar(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+            EmailMessage.direction == "incoming",
+        )
+        .order_by(
+            *_latest_message_order(),
+        )
+        .limit(1)
+    )
+
+    if latest_message is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "The email thread does not contain "
+                "an incoming message to reply to."
+            ),
+        )
+
+    recipient = (
+        latest_message.sender_email.strip()
+        if latest_message.sender_email
+        else ""
+    )
+
+    if not recipient:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "A quotation recipient could not be "
+                "determined for this thread."
+            ),
+        )
+
+    quotation = get_quotation_by_id(
+        db=db,
+        quotation_id=payload.quotation_id,
+        organization_id=current_user.organization_id,
+    )
+
+    if quotation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Quotation was not found.",
+        )
+
+    customer = get_customer_for_organization(
+        db=db,
+        customer_id=quotation.customer_id,
+        organization_id=current_user.organization_id,
+    )
+
+    if customer is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Quotation customer was not found "
+                "or is inactive."
+            ),
+        )
+
+    customer_email = (
+        customer.email.strip().lower()
+        if customer.email
+        else ""
+    )
+
+    if (
+        customer_email
+        and customer_email != recipient.lower()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The quotation customer email does not "
+                "match the RFQ sender."
+            ),
+        )
+
+    try:
+        pdf_bytes = generate_quotation_pdf(
+            quotation=quotation,
+            customer=customer,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to generate the quotation PDF.",
+        ) from exc
+
+    if not pdf_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Generated quotation PDF is empty.",
+        )
+
+    attachment_filename = (
+        f"{quotation.quotation_number}.pdf"
+    )
+
+    contact_name = (
+        customer.contact_name.strip()
+        if customer.contact_name
+        else ""
+    )
+
+    greeting = (
+        f"Dear {contact_name},"
+        if contact_name
+        else "Hello,"
+    )
+
+    subject = (
+        thread.subject
+        or f"Quotation {quotation.quotation_number}"
+    )
+
+    body = "\n".join(
+        [
+            greeting,
+            "",
+            "Thank you for your enquiry.",
+            "",
+            (
+                "Please find attached our quotation "
+                f"{quotation.quotation_number} for your review."
+            ),
+            "",
+            (
+                "The quotation is valid until "
+                f"{quotation.expiry_date.isoformat()}."
+            ),
+            "",
+            (
+                "Please review the attached document and "
+                "let us know if you have any questions "
+                "or require any changes."
+            ),
+            "",
+            "Best regards,",
+            "Sales Team",
+        ]
+    )
+
+    connection = _get_active_gmail_connection(
+        db=db,
+        current_user=current_user,
+    )
+
+    if connection is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active Gmail connection was found.",
+        )
+
+    try:
+        access_token = _get_valid_gmail_access_token(
+            db=db,
+            connection=connection,
+        )
+
+        gmail_client = GmailClient(
+            access_token=access_token,
+            scopes=_deserialize_scopes(
+                connection.scopes
+            ),
+        )
+
+        result = GmailDraftService(
+            gmail_client=gmail_client,
+        ).create_thread_reply_draft(
+            thread=thread,
+            latest_message=latest_message,
+            subject=subject,
+            body=body,
+            attachments=[
+                (
+                    attachment_filename,
+                    pdf_bytes,
+                    "application/pdf",
+                )
+            ],
+        )
+
+    except HTTPException:
+        raise
+
+    except (
+        EncryptionConfigurationError,
+        SecretDecryptionError,
+    ):
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored Gmail credentials are unavailable.",
+        ) from None
+
+    except GmailOAuthError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to refresh the Gmail connection.",
+        ) from None
+
+    except (
+        GmailDraftError,
+        GmailClientError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return QuotationDraftResponse(
+        thread_id=thread.id,
+        quotation_id=quotation.id,
+        quotation_number=quotation.quotation_number,
+        draft_id=result.draft_id,
+        message_id=result.message_id,
+        recipient=recipient,
+        attachment_filename=attachment_filename,
+        status="draft",
     )
 
 

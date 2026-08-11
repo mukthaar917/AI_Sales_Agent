@@ -218,3 +218,32 @@ class QuotationPreviewResponse(BaseModel):
     subtotal: Decimal
     tax_amount: Decimal
     total_amount: Decimal
+
+class CreateQuotationFromThreadResponse(BaseModel):
+    """Quotation created from a reviewed RFQ thread."""
+
+    thread_id: UUID
+    quotation_id: UUID
+    quotation_number: str
+    status: str
+
+class QuotationDraftRequest(BaseModel):
+    """Request to create a Gmail draft for a quotation."""
+
+    quotation_id: UUID
+
+
+class QuotationDraftResponse(BaseModel):
+    """Gmail draft created for a quotation."""
+
+    thread_id: UUID
+    quotation_id: UUID
+    quotation_number: str
+
+    draft_id: str
+    message_id: str | None = None
+
+    recipient: str
+    attachment_filename: str
+
+    status: str
