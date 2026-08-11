@@ -40,6 +40,7 @@ from app.schemas.email import (
     EmailThreadSummary,
     EmailThreadSummaryResponse,
     QuotationExtractionResponse,
+    QuotationPreviewResponse,
     ReplySuggestionsResponse,
     SalesOpportunityResponse,
 )
@@ -66,6 +67,10 @@ from app.services.gmail.sync import (
 from app.services.quotation_extraction import (
     QuotationExtractionError,
     QuotationExtractionService,
+)
+from app.services.quotation_preview import (
+    QuotationPreviewError,
+    QuotationPreviewService,
 )
 from app.services.reply_suggestions import (
     ReplySuggestionError,
@@ -812,6 +817,123 @@ def extract_quotation_requirements(
             result.payment_terms_requested
         ),
         confidence=result.confidence,
+    )
+
+
+@router.post(
+    "/threads/{thread_id}/quotation-preview",
+    response_model=QuotationPreviewResponse,
+    status_code=status.HTTP_200_OK,
+)
+def preview_quotation_from_thread(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> QuotationPreviewResponse:
+    """Prepare a reviewable quotation preview from an RFQ email."""
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    messages = db.scalars(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
+        .order_by(
+            *_thread_message_order(),
+        )
+    ).all()
+
+    if not messages:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Email thread does not contain any messages.",
+        )
+
+    incoming_messages = [
+        message
+        for message in messages
+        if (
+            message.direction == "incoming"
+            and message.sender_email
+        )
+    ]
+
+    if not incoming_messages:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unable to determine the RFQ sender.",
+        )
+
+    sender_email = incoming_messages[-1].sender_email
+
+    if sender_email is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unable to determine the RFQ sender email.",
+        )
+
+    try:
+        extraction = QuotationExtractionService().extract(
+            thread=thread,
+            messages=list(messages),
+        )
+
+        if (
+            extraction.product is None
+            or extraction.quantity is None
+        ):
+            raise QuotationPreviewError(
+                "Product or quantity could not be extracted."
+            )
+
+        preview = QuotationPreviewService(
+            db=db,
+        ).prepare(
+            current_user=current_user,
+            sender_email=sender_email,
+            product_name=extraction.product,
+            quantity=extraction.quantity,
+        )
+
+    except (
+        QuotationExtractionError,
+        QuotationPreviewError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return QuotationPreviewResponse(
+        thread_id=thread.id,
+        customer_id=preview.customer_id,
+        customer_name=preview.customer_name,
+        customer_email=preview.customer_email,
+        product_id=preview.product_id,
+        product_name=preview.product_name,
+        quantity=preview.quantity,
+        unit=preview.unit,
+        unit_price=preview.unit_price,
+        currency=preview.currency,
+        tax_rate=preview.tax_rate,
+        subtotal=preview.subtotal,
+        tax_amount=preview.tax_amount,
+        total_amount=preview.total_amount,
     )
 
 

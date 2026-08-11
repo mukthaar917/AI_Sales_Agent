@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from decimal import Decimal
+
 
 class EmailMessageResponse(BaseModel):
     """A synchronized email message."""
@@ -194,3 +196,25 @@ class QuotationExtractionResponse(BaseModel):
         ge=0.0,
         le=1.0,
     )
+
+class QuotationPreviewResponse(BaseModel):
+    """Reviewable quotation preview for one email thread."""
+
+    thread_id: UUID
+
+    customer_id: UUID
+    customer_name: str
+    customer_email: str | None = None
+
+    product_id: UUID
+    product_name: str
+
+    quantity: Decimal
+    unit: str
+    unit_price: Decimal
+    currency: str
+    tax_rate: Decimal
+
+    subtotal: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
