@@ -3,10 +3,12 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth,
     customers,
+    knowledge,
     products,
     quotations,
     system,
 )
+
 from app.api.v1.endpoints import email, gmail
 
 
@@ -44,6 +46,12 @@ api_router.include_router(
 )
 
 api_router.include_router(
+    knowledge.router,
+    prefix="/knowledge",
+    tags=["Knowledge"],
+)
+
+api_router.include_router(
     gmail.router,
     prefix="/gmail",
     tags=["Gmail"],
@@ -54,3 +62,4 @@ api_router.include_router(
     prefix="/email",
     tags=["Email"],
 )
+

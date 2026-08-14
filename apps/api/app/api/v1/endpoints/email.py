@@ -671,7 +671,7 @@ def generate_reply_suggestions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ReplySuggestionsResponse:
-    """Generate reviewable reply suggestions for one email thread."""
+    """Generate grounded, reviewable reply suggestions for one email thread."""
 
     thread = db.scalar(
         select(EmailThread).where(
@@ -701,12 +701,15 @@ def generate_reply_suggestions(
 
     try:
         suggestions = ReplySuggestionService().generate(
+            db=db,
+            organization_id=current_user.organization_id,
             thread=thread,
             messages=list(messages),
         )
+
     except ReplySuggestionError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=str(exc),
         ) from exc
 
@@ -714,7 +717,6 @@ def generate_reply_suggestions(
         thread_id=thread.id,
         suggestions=suggestions,
     )
-
 
 @router.post(
     "/threads/{thread_id}/sales-opportunity",
@@ -1045,6 +1047,16 @@ def create_quotation_from_thread(
 
         today = date.today()
 
+        original_subject = (
+            (thread.subject or "No subject").strip()
+        )
+
+        if original_subject.lower().startswith("subject:"):
+            original_subject = (
+                original_subject.split(":", 1)[1].strip()
+                or "No subject"
+            )
+
         quotation_in = QuotationCreate(
             customer_id=UUID(preview.customer_id),
             issue_date=today,
@@ -1052,8 +1064,7 @@ def create_quotation_from_thread(
             currency=preview.currency,
             notes=(
                 f"Created from email thread {thread.id}. "
-                f"Original subject: "
-                f"{thread.subject or 'No subject'}"
+                f"Original subject: {original_subject}"
             ),
             terms=(
                 "Draft quotation created from reviewed "
@@ -1528,4 +1539,178 @@ def get_email_message(
 
     return EmailMessageResponse.model_validate(
         message
+    )
+
+@router.post(
+    "/threads/{thread_id}/ai-draft-reply",
+    response_model=DraftReplyResponse,
+    status_code=status.HTTP_200_OK,
+)
+def create_ai_thread_draft_reply(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DraftReplyResponse:
+    """
+    Generate a grounded AI reply and create a Gmail draft.
+
+    The email is created as a draft only.
+    It is never sent automatically.
+    """
+
+    thread = db.scalar(
+        select(EmailThread).where(
+            EmailThread.id == thread_id,
+            EmailThread.organization_id
+            == current_user.organization_id,
+        )
+    )
+
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email thread was not found.",
+        )
+
+    messages = db.scalars(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+        )
+        .order_by(
+            *_thread_message_order(),
+        )
+    ).all()
+
+    if not messages:
+        raise HTTPException(
+            status_code=422,
+            detail="The email thread does not contain any messages.",
+        )
+
+    latest_message = db.scalar(
+        select(EmailMessage)
+        .where(
+            EmailMessage.thread_id == thread.id,
+            EmailMessage.organization_id
+            == current_user.organization_id,
+            EmailMessage.direction == "incoming",
+        )
+        .order_by(
+            *_latest_message_order(),
+        )
+        .limit(1)
+    )
+
+    if latest_message is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "The email thread does not contain "
+                "an incoming message to reply to."
+            ),
+        )
+
+    if not latest_message.sender_email:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "A reply recipient could not be "
+                "determined for this thread."
+            ),
+        )
+
+    try:
+        suggestions = ReplySuggestionService().generate(
+            db=db,
+            organization_id=current_user.organization_id,
+            thread=thread,
+            messages=list(messages),
+        )
+
+    except ReplySuggestionError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+    if not suggestions:
+        raise HTTPException(
+            status_code=422,
+            detail="No AI reply suggestion was generated.",
+        )
+
+    suggestion = suggestions[0]
+
+    connection = _get_active_gmail_connection(
+        db=db,
+        current_user=current_user,
+    )
+
+    if connection is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active Gmail connection was found.",
+        )
+
+    try:
+        access_token = _get_valid_gmail_access_token(
+            db=db,
+            connection=connection,
+        )
+
+        gmail_client = GmailClient(
+            access_token=access_token,
+            scopes=_deserialize_scopes(
+                connection.scopes
+            ),
+        )
+
+        result = GmailDraftService(
+            gmail_client=gmail_client,
+        ).create_thread_reply_draft(
+            thread=thread,
+            latest_message=latest_message,
+            subject=suggestion.subject,
+            body=suggestion.body,
+        )
+
+    except HTTPException:
+        raise
+
+    except (
+        EncryptionConfigurationError,
+        SecretDecryptionError,
+    ):
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored Gmail credentials are unavailable.",
+        ) from None
+
+    except GmailOAuthError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to refresh the Gmail connection.",
+        ) from None
+
+    except (
+        GmailDraftError,
+        GmailClientError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return DraftReplyResponse(
+        thread_id=thread.id,
+        draft_id=result.draft_id,
+        message_id=result.message_id,
+        status="draft",
     )

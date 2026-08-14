@@ -1,13 +1,20 @@
-"""Email reply suggestion service."""
+"""Grounded AI email reply suggestion service."""
 
 from __future__ import annotations
 
+import uuid
 from html import unescape
 from html.parser import HTMLParser
+
+from sqlalchemy.orm import Session
 
 from app.models.email_message import EmailMessage
 from app.models.email_thread import EmailThread
 from app.schemas.email import ReplySuggestion
+from app.services.rag_answer_service import (
+    RAGAnswerError,
+    RAGAnswerService,
+)
 
 
 class ReplySuggestionError(RuntimeError):
@@ -47,7 +54,9 @@ class _HTMLTextExtractor(HTMLParser):
         if self._ignored_depth > 0:
             return
 
-        normalized = " ".join(data.split()).strip()
+        normalized = " ".join(
+            data.split()
+        ).strip()
 
         if normalized:
             self._parts.append(normalized)
@@ -57,10 +66,16 @@ class _HTMLTextExtractor(HTMLParser):
 
 
 class ReplySuggestionService:
-    """Generate reviewable reply suggestions for an email thread."""
+    """Generate a grounded, reviewable reply for an email thread."""
+
+    def __init__(self) -> None:
+        self.rag = RAGAnswerService()
 
     def generate(
         self,
+        *,
+        db: Session,
+        organization_id: uuid.UUID,
         thread: EmailThread,
         messages: list[EmailMessage],
     ) -> list[ReplySuggestion]:
@@ -86,30 +101,90 @@ class ReplySuggestionService:
             )
 
         latest_message = prepared_messages[-1]
-        subject = self._reply_subject(thread.subject)
 
-        # Temporary deterministic suggestions.
-        # Replace this block with the configured AI provider later.
+        try:
+            rag_result = self.rag.answer(
+                db,
+                organization_id=organization_id,
+                question=latest_message,
+                limit=3,
+            )
+
+        except RAGAnswerError as exc:
+            raise ReplySuggestionError(
+                "Unable to generate a grounded reply suggestion."
+            ) from exc
+
+        subject = self._reply_subject(
+            thread.subject
+        )
+
+        # No relevant approved knowledge was retrieved.
+        #
+        # In this case there is nothing grounded that can safely
+        # be included in the customer reply, so require human review.
+        if (
+            rag_result.insufficient_knowledge
+            and not rag_result.sources
+        ):
+            body = self._build_insufficient_knowledge_reply()
+
+            return [
+                ReplySuggestion(
+                    subject=subject,
+                    body=body,
+                )
+            ]
+
+        # Relevant approved knowledge was found.
+        #
+        # This covers:
+        #
+        # 1. Fully supported requests
+        # 2. Partially supported requests
+        #
+        # For partially supported requests, RAGAnswerService has
+        # already been instructed to answer supported facts and
+        # clearly flag unsupported facts for confirmation.
+        body = self._build_reply_body(
+            rag_result.answer
+        )
+
         return [
             ReplySuggestion(
                 subject=subject,
-                body=(
-                    "Thank you for your email. "
-                    "We have reviewed your message and will follow up "
-                    "with the relevant details shortly."
-                ),
-            ),
-            ReplySuggestion(
-                subject=subject,
-                body=(
-                    "Thank you for reaching out. "
-                    f"We noted the following from your latest message: "
-                    f"{latest_message[:300]} "
-                    "Please let us know if there is anything else "
-                    "you would like us to consider."
-                ),
-            ),
+                body=body,
+            )
         ]
+
+    @staticmethod
+    def _build_reply_body(
+        grounded_answer: str,
+    ) -> str:
+        """Return the grounded AI reply without duplicating content."""
+
+        answer = grounded_answer.strip()
+
+        if not answer:
+            raise ReplySuggestionError(
+                "The grounded AI answer was empty."
+            )
+
+        return answer
+
+    @staticmethod
+    def _build_insufficient_knowledge_reply() -> str:
+        """Return the safe fallback when no grounded knowledge exists."""
+
+        return (
+            "Thank you for your email.\n\n"
+            "We have reviewed your request, but the approved "
+            "company knowledge currently available does not "
+            "contain enough information for us to provide a "
+            "reliable response.\n\n"
+            "Your request requires human review before we can "
+            "confirm the requested details."
+        )
 
     def _prepare_message(
         self,
@@ -123,7 +198,9 @@ class ReplySuggestionService:
 
         body = (
             message.text_body
-            or self._html_to_text(message.html_body)
+            or self._html_to_text(
+                message.html_body
+            )
         )
 
         normalized_body = " ".join(
@@ -133,15 +210,34 @@ class ReplySuggestionService:
         if not normalized_body:
             return ""
 
-        return f"{sender}: {normalized_body}"
+        return (
+            f"Customer: {sender}\n"
+            f"Message: {normalized_body}"
+        )
 
     @staticmethod
     def _reply_subject(
         subject: str | None,
     ) -> str:
-        normalized = (subject or "No subject").strip()
+        """Normalize the original subject and add one Re: prefix."""
 
-        if normalized.lower().startswith("re:"):
+        normalized = (
+            subject or "No subject"
+        ).strip()
+
+        # Some synchronized emails may contain a redundant
+        # "Subject:" prefix in the stored subject.
+        if normalized.lower().startswith(
+            "subject:"
+        ):
+            normalized = normalized[
+                len("subject:")
+            :].strip()
+
+        # Avoid producing "Re: Re: ..."
+        if normalized.lower().startswith(
+            "re:"
+        ):
             return normalized
 
         return f"Re: {normalized}"
@@ -158,9 +254,12 @@ class ReplySuggestionService:
         try:
             parser.feed(html_body)
             parser.close()
+
         except Exception as exc:
             raise ReplySuggestionError(
                 "The email HTML could not be processed."
             ) from exc
 
-        return unescape(parser.get_text())
+        return unescape(
+            parser.get_text()
+        )

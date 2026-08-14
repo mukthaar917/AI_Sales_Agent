@@ -30,6 +30,27 @@ def create_customer(
     return customer
 
 
+def find_active_customer_by_email(
+    db: Session,
+    organization_id: uuid.UUID,
+    email: str,
+) -> Customer | None:
+    """Return an active customer matching an email in the organization."""
+
+    normalized_email = email.strip().lower()
+
+    if not normalized_email:
+        return None
+
+    return db.scalar(
+        select(Customer).where(
+            Customer.organization_id == organization_id,
+            Customer.is_active.is_(True),
+            func.lower(Customer.email) == normalized_email,
+        )
+    )
+
+
 def get_customer_by_id(
     db: Session,
     organization_id: uuid.UUID,
@@ -92,7 +113,9 @@ def list_customers(
         .limit(page_size)
     )
 
-    customers = list(db.scalars(customers_query).all())
+    customers = list(
+        db.scalars(customers_query).all()
+    )
 
     return customers, total
 
@@ -106,8 +129,13 @@ def update_customer(
         exclude_unset=True,
     )
 
-    if "website" in updates and updates["website"] is not None:
-        updates["website"] = str(updates["website"])
+    if (
+        "website" in updates
+        and updates["website"] is not None
+    ):
+        updates["website"] = str(
+            updates["website"]
+        )
 
     for field, value in updates.items():
         setattr(customer, field, value)

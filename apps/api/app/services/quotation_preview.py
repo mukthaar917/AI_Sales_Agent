@@ -9,9 +9,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
-from app.models.product import Product
 from app.models.user import User
-from app.services.quotation_service import calculate_line
+from app.services.quotation_service import (
+    calculate_line,
+    find_product_by_name_for_organization,
+)
 
 
 class QuotationPreviewError(RuntimeError):
@@ -58,7 +60,7 @@ class QuotationPreviewService:
         quantity: int,
     ) -> QuotationPreviewResult:
         normalized_sender = sender_email.strip().lower()
-        normalized_product = product_name.strip().lower()
+        normalized_product = product_name.strip()
 
         if not normalized_sender:
             raise QuotationPreviewError(
@@ -90,38 +92,20 @@ class QuotationPreviewService:
                 "No active customer matches the RFQ sender email."
             )
 
-        product = self.db.scalar(
-            select(Product)
-            .where(
-                Product.organization_id
-                == current_user.organization_id,
-                Product.is_active.is_(True),
-                func.lower(Product.name)
-                == normalized_product,
-            )
-            .limit(1)
+        product = find_product_by_name_for_organization(
+            db=self.db,
+            product_name=normalized_product,
+            organization_id=current_user.organization_id,
         )
-
-        if product is None:
-            product = self.db.scalar(
-                select(Product)
-                .where(
-                    Product.organization_id
-                    == current_user.organization_id,
-                    Product.is_active.is_(True),
-                    func.lower(Product.name).contains(
-                        normalized_product
-                    ),
-                )
-                .limit(1)
-            )
 
         if product is None:
             raise QuotationPreviewError(
                 "No active product matches the extracted requirement."
             )
 
-        quantity_decimal = Decimal(str(quantity))
+        quantity_decimal = Decimal(
+            str(quantity)
+        )
 
         line = calculate_line(
             quantity=quantity_decimal,

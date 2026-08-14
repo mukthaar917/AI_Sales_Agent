@@ -12,6 +12,8 @@ import type {
   QuotationDraftResponse,
   QuotationExtractionResponse,
   QuotationPreviewResponse,
+  QuotationStatusUpdateRequest,
+  QuotationStatusUpdateResponse,
   ReplySuggestionsResponse,
   SalesOpportunityResponse,
   ThreadListParams,
@@ -118,6 +120,19 @@ export async function createQuotationFromThread(
   const response =
     await apiClient.post<CreateQuotationFromThreadResponse>(
       `/email/threads/${threadId}/quotation`,
+    )
+
+  return response.data
+}
+
+export async function updateQuotationStatus(
+  quotationId: string,
+  payload: QuotationStatusUpdateRequest,
+): Promise<QuotationStatusUpdateResponse> {
+  const response =
+    await apiClient.put<QuotationStatusUpdateResponse>(
+      `/quotations/${quotationId}`,
+      payload,
     )
 
   return response.data

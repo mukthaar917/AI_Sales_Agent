@@ -28,6 +28,30 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
 
     # ------------------------------------------------------------------
+    # Knowledge Base
+    # ------------------------------------------------------------------
+    knowledge_storage_dir: str = str(
+        PROJECT_ROOT / "storage" / "documents"
+    )
+
+    knowledge_max_upload_bytes: int = (
+        10 * 1024 * 1024
+    )
+
+    # ------------------------------------------------------------------
+    # AI Provider
+    # ------------------------------------------------------------------
+    ai_provider: str = "openai"
+
+    ai_model: str = "gpt-4.1-mini"
+
+    ai_api_key: str = ""
+
+    ai_timeout_seconds: float = 30.0
+
+    ai_max_output_tokens: int = 1200
+
+    # ------------------------------------------------------------------
     # Gmail OAuth
     # ------------------------------------------------------------------
     google_client_id: str = ""
