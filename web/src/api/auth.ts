@@ -28,8 +28,7 @@ export async function login(
     formData,
     {
       headers: {
-        'Content-Type':
-          'application/x-www-form-urlencoded',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
     },
   )
@@ -38,10 +37,9 @@ export async function login(
 }
 
 export async function getCurrentUser(): Promise<CurrentUser> {
-  const response =
-    await apiClient.get<CurrentUser>(
-      '/api/v1/auth/me',
-    )
+  const response = await apiClient.get<CurrentUser>(
+    '/api/v1/auth/me',
+  )
 
   return response.data
 }
