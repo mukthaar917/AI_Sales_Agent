@@ -24,7 +24,7 @@ export async function login(
   formData.append('password', password)
 
   const response = await apiClient.post<LoginResponse>(
-    '/api/v1/auth/login',
+    '/v1/auth/login',
     formData,
     {
       headers: {
@@ -38,7 +38,7 @@ export async function login(
 
 export async function getCurrentUser(): Promise<CurrentUser> {
   const response = await apiClient.get<CurrentUser>(
-    '/api/v1/auth/me',
+    '/v1/auth/me',
   )
 
   return response.data
