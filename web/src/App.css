@@ -476,3 +476,314 @@ button:disabled {
   margin: 0;
   line-height: 1.6;
 }
+
+
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  background: #f5f7fb;
+}
+
+.sidebar {
+  width: 250px;
+  min-height: 100vh;
+  background: #0f172a;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+}
+
+.sidebar-brand {
+  padding: 28px 22px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid #253047;
+}
+
+.sidebar-brand strong {
+  display: block;
+  font-size: 17px;
+}
+
+.sidebar-brand span {
+  display: block;
+  color: #94a3b8;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.brand-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2563eb;
+  color: white;
+  font-weight: 800;
+}
+
+.sidebar nav {
+  padding: 20px 12px;
+  flex: 1;
+}
+
+.nav-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #cbd5e1;
+  padding: 13px 14px;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.nav-item:hover {
+  background: #1e293b;
+  color: white;
+}
+
+.nav-item.active {
+  background: #2563eb;
+  color: white;
+}
+
+.nav-icon {
+  width: 22px;
+  text-align: center;
+  font-size: 17px;
+}
+
+.sidebar-bottom {
+  padding: 15px 12px 22px;
+  border-top: 1px solid #253047;
+}
+
+.app-content {
+  margin-left: 250px;
+  width: calc(100% - 250px);
+  min-height: 100vh;
+}
+
+.dashboard-page {
+  padding: 42px 48px;
+  max-width: 1500px;
+  margin: auto;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 35px;
+}
+
+.page-header h1 {
+  margin: 5px 0 8px;
+  font-size: 36px;
+  color: #0f172a;
+}
+
+.system-online {
+  background: #dcfce7;
+  color: #166534;
+  padding: 9px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 42px;
+}
+
+.metric-card,
+.agent-card,
+.placeholder-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.metric-card span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.metric-card strong {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 19px;
+  color: #0f172a;
+}
+
+.metric-card p {
+  color: #64748b;
+  margin: 0;
+  font-size: 14px;
+}
+
+.section-title {
+  font-size: 22px;
+  color: #0f172a;
+  margin-bottom: 18px;
+}
+
+.agent-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.agent-card {
+  position: relative;
+}
+
+.agent-card h2 {
+  margin: 16px 0 10px;
+  color: #0f172a;
+}
+
+.agent-card p {
+  color: #64748b;
+  line-height: 1.6;
+  min-height: 76px;
+}
+
+.agent-number {
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workflow {
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 12px;
+  color: #475569;
+  font-size: 12px;
+  margin: 18px 0;
+}
+
+/* ===== Login ===== */
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background:
+    linear-gradient(
+      135deg,
+      #0f172a,
+      #172554
+    );
+  padding: 25px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  background: white;
+  border-radius: 18px;
+  padding: 38px;
+  box-shadow:
+    0 25px 60px rgba(0,0,0,.25);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 35px;
+}
+
+.login-brand h1 {
+  font-size: 21px;
+  margin: 0;
+}
+
+.login-brand p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.login-heading h2 {
+  font-size: 27px;
+  margin-bottom: 7px;
+}
+
+.login-heading p {
+  color: #64748b;
+  margin-bottom: 28px;
+}
+
+.login-card label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.login-card input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.login-button {
+  width: 100%;
+  margin-top: 5px;
+}
+
+.login-footer {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+  margin: 25px 0 0;
+}
+
+.placeholder-card {
+  min-height: 250px;
+}
+
+@media (max-width: 1000px) {
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .agent-grid {
+    grid-template-columns: 1fr;
+  }
+}
