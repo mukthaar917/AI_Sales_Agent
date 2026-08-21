@@ -8,6 +8,7 @@ import {
   type Page,
 } from './components/Sidebar'
 import './App.css'
+import { CustomersPage } from './pages/CustomersPage'
 
 function Placeholder({
   title,
@@ -120,12 +121,7 @@ function App() {
       break
 
     case 'customers':
-      content = (
-        <Placeholder
-          title="Customers"
-          description="Manage leads, customers and sales contacts."
-        />
-      )
+      content = <CustomersPage />
       break
 
     case 'knowledge':
