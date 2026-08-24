@@ -134,12 +134,7 @@ function App() {
       break
 
     case 'products':
-      content = (
-        <Placeholder
-          title="Products"
-          description="Manage products, pricing and tax rates."
-        />
-      )
+      content = <ProductsPage />
       break
 
     case 'quotations':
