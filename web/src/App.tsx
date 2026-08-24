@@ -8,6 +8,7 @@ import {
   type Page,
 } from './components/Sidebar'
 import './App.css'
+import { ProductsPage } from './pages/ProductsPage'
 import { CustomersPage } from './pages/CustomersPage'
 
 function Placeholder({
