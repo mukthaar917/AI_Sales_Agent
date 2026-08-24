@@ -304,15 +304,15 @@ export function CustomersPage() {
 
                       <td>
                         {customer.contact_name ||
-                          '—'}
+                          'GÇö'}
                       </td>
 
                       <td>
-                        {customer.email || '—'}
+                        {customer.email || 'GÇö'}
                       </td>
 
                       <td>
-                        {customer.phone || '—'}
+                        {customer.phone || 'GÇö'}
                       </td>
 
                       <td>
@@ -321,7 +321,7 @@ export function CustomersPage() {
                           customer.country,
                         ]
                           .filter(Boolean)
-                          .join(', ') || '—'}
+                          .join(', ') || 'GÇö'}
                       </td>
 
                       <td>

@@ -10,6 +10,7 @@ import {
 import './App.css'
 import { ProductsPage } from './pages/ProductsPage'
 import { CustomersPage } from './pages/CustomersPage'
+import { QuotationsPage } from './pages/QuotationsPage'
 
 function Placeholder({
   title,
@@ -139,13 +140,8 @@ function App() {
       break
 
     case 'quotations':
-      content = (
-        <Placeholder
-          title="Quotations"
-          description="Create, manage and download customer quotations."
-        />
-      )
-      break
+        content = <QuotationsPage />
+        break
   }
 
   return (
