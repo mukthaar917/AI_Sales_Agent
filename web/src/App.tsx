@@ -1,48 +1,20 @@
 import { useState } from 'react'
+
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { InboxPage } from './pages/InboxPage'
 import { ThreadPage } from './pages/ThreadPage'
+import { CustomersPage } from './pages/CustomersPage'
+import { ProductsPage } from './pages/ProductsPage'
+import { QuotationsPage } from './pages/QuotationsPage'
+import { KnowledgeBasePage } from './pages/KnowledgeBasePage'
+
 import {
   Sidebar,
   type Page,
 } from './components/Sidebar'
+
 import './App.css'
-import { ProductsPage } from './pages/ProductsPage'
-import { CustomersPage } from './pages/CustomersPage'
-import { QuotationsPage } from './pages/QuotationsPage'
-
-function Placeholder({
-  title,
-  description,
-}: {
-  title: string
-  description: string
-}) {
-  return (
-    <div className="dashboard-page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">
-            AI SALES AGENT
-          </p>
-          <h1>{title}</h1>
-          <p className="subtitle">
-            {description}
-          </p>
-        </div>
-      </header>
-
-      <div className="placeholder-card">
-        <h2>{title}</h2>
-        <p>
-          This module is connected to the
-          AI Sales Agent backend.
-        </p>
-      </div>
-    </div>
-  )
-}
 
 function App() {
   const [authenticated, setAuthenticated] =
@@ -55,13 +27,16 @@ function App() {
   const [page, setPage] =
     useState<Page>('dashboard')
 
-  const [selectedThreadId, setSelectedThreadId] =
-    useState<string | null>(null)
+  const [
+    selectedThreadId,
+    setSelectedThreadId,
+  ] = useState<string | null>(null)
 
   function logout() {
     localStorage.removeItem('access_token')
     setAuthenticated(false)
     setSelectedThreadId(null)
+    setPage('dashboard')
   }
 
   if (!authenticated) {
@@ -127,12 +102,7 @@ function App() {
       break
 
     case 'knowledge':
-      content = (
-        <Placeholder
-          title="Knowledge Base"
-          description="Manage documents used by the AI RAG engine."
-        />
-      )
+      content = <KnowledgeBasePage />
       break
 
     case 'products':
@@ -140,8 +110,16 @@ function App() {
       break
 
     case 'quotations':
-        content = <QuotationsPage />
-        break
+      content = <QuotationsPage />
+      break
+
+    default:
+      content = (
+        <DashboardPage
+          onNavigate={setPage}
+        />
+      )
+      break
   }
 
   return (
