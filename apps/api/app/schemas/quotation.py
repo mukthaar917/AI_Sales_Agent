@@ -212,6 +212,8 @@ class QuotationCreate(QuotationBase):
 
 
 class QuotationUpdate(BaseModel):
+    status: QuotationStatus | None = None
+
     customer_id: uuid.UUID | None = None
 
     issue_date: date | None = None

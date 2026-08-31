@@ -31,6 +31,24 @@ def _safe_text(value: Any, default: str = "") -> str:
     return str(value)
 
 
+def _format_status(value: Any) -> str:
+    """Format an enum or string quotation status for display."""
+    if value is None:
+        return "Draft"
+
+    enum_value = getattr(value, "value", None)
+
+    if enum_value is not None:
+        value = enum_value
+
+    text = str(value).strip()
+
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+
+    return text.replace("_", " ").title()
+
+
 def _format_money(
     value: Any,
     currency: str = "USD",
@@ -317,8 +335,16 @@ def _draw_page_footer(
 
 def generate_quotation_pdf(
     quotation: Quotation,
+    *,
+    customer: Any = None,
+    organization: Any = None,
 ) -> bytes:
-    """Generate and return a complete quotation PDF."""
+    """
+    Generate and return a complete quotation PDF.
+
+    customer and organization may be supplied explicitly when the
+    Quotation ORM object does not expose those relationships.
+    """
     buffer = BytesIO()
 
     document = SimpleDocTemplate(
@@ -344,8 +370,11 @@ def generate_quotation_pdf(
         "USD",
     )
 
-    customer = _get_customer(quotation)
-    organization = _get_organization(quotation)
+    if customer is None:
+        customer = _get_customer(quotation)
+
+    if organization is None:
+        organization = _get_organization(quotation)
 
     company_details = _build_company_details(organization)
 
@@ -428,12 +457,15 @@ def generate_quotation_pdf(
             )
         )
 
-    customer_lines.append(
-        Paragraph(
-            _build_customer_address(customer),
-            styles["normal"],
+    customer_address = _build_customer_address(customer)
+
+    if customer_address != "-":
+        customer_lines.append(
+            Paragraph(
+                customer_address,
+                styles["normal"],
+            )
         )
-    )
 
     if customer_email:
         customer_lines.append(
@@ -512,14 +544,13 @@ def generate_quotation_pdf(
                             styles["small"],
                         ),
                         Paragraph(
-                            _safe_text(
+                            _format_status(
                                 getattr(
                                     quotation,
                                     "status",
                                     None,
-                                ),
-                                "draft",
-                            ).replace("_", " ").title(),
+                                )
+                            ),
                             styles["small_right"],
                         ),
                     ],

@@ -5,28 +5,37 @@ from app.db.session import SessionLocal
 from app.models.user import User
 
 
-ADMIN_EMAIL = "admin@example.com"
-NEW_PASSWORD = "ChangeMe123!"
+OLD_EMAIL = "admin@example.com"
+NEW_EMAIL = "truefoxaiinc234@gmail.com"
+NEW_PASSWORD = "YourNewStrongPassword123!"
 
 
-def reset_admin_password() -> None:
+def reset_admin_credentials() -> None:
     db = SessionLocal()
 
     try:
         user = db.scalar(
-            select(User).where(User.email == ADMIN_EMAIL)
+            select(User).where(User.email == OLD_EMAIL)
         )
 
         if user is None:
-            print(f"User not found: {ADMIN_EMAIL}")
+            print(f"User not found: {OLD_EMAIL}")
             return
 
+        # Change email
+        user.email = NEW_EMAIL
+
+        # Change password using the project's password hashing
         user.hashed_password = hash_password(NEW_PASSWORD)
+
+        # Make sure admin account is active
         user.is_active = True
 
         db.commit()
 
-        print(f"Password reset successfully for {ADMIN_EMAIL}")
+        print("Admin credentials updated successfully")
+        print(f"Old email: {OLD_EMAIL}")
+        print(f"New email: {NEW_EMAIL}")
 
     except Exception:
         db.rollback()
@@ -37,4 +46,4 @@ def reset_admin_password() -> None:
 
 
 if __name__ == "__main__":
-    reset_admin_password()
+    reset_admin_credentials()
