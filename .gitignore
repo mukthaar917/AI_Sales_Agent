@@ -8,3 +8,9 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+*.env
+credentials.json
+token.json
+*.pem
+*.key
+GoogleCloudConsole.json
