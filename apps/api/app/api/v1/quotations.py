@@ -1,6 +1,13 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Response,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user
@@ -13,10 +20,13 @@ from app.schemas.quotation import (
     QuotationResponse,
     QuotationUpdate,
 )
-from app.services.quotation_pdf_service import generate_quotation_pdf
+from app.services.quotation_pdf_service import (
+    generate_quotation_pdf,
+)
 from app.services.quotation_service import (
     create_quotation,
     delete_quotation,
+    get_customer_for_organization,
     get_quotation_by_id,
     list_quotations,
     update_quotation,
@@ -113,6 +123,12 @@ def list_quotations_endpoint(
         status.HTTP_404_NOT_FOUND: {
             "description": "Quotation not found",
         },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": (
+                "Quotation customer was not found "
+                "or is inactive"
+            ),
+        },
     },
 )
 def download_quotation_pdf_endpoint(
@@ -132,9 +148,25 @@ def download_quotation_pdf_endpoint(
             detail="Quotation not found",
         )
 
+    customer = get_customer_for_organization(
+        db=db,
+        customer_id=quotation.customer_id,
+        organization_id=current_user.organization_id,
+    )
+
+    if customer is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Quotation customer was not found "
+                "or is inactive."
+            ),
+        )
+
     try:
         pdf_bytes = generate_quotation_pdf(
             quotation=quotation,
+            customer=customer,
         )
     except Exception as exc:
         raise HTTPException(

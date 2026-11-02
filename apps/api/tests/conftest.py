@@ -7,16 +7,24 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-# This must exist before importing the application.
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
+from app.core.config import settings
+
+# -------------------------------------------------------
+# Resolve test database
+# -------------------------------------------------------
+
+TEST_DATABASE_URL = (
+    os.getenv("TEST_DATABASE_URL")
+    or settings.test_database_url
+)
 
 if not TEST_DATABASE_URL:
     raise RuntimeError(
-        "TEST_DATABASE_URL is not configured. "
-        "Set it to the dedicated ai_sales_agent_test database."
+        "TEST_DATABASE_URL is not configured.\n"
+        "Add TEST_DATABASE_URL to your .env file."
     )
 
-# Ensure application settings also point to the test database.
+# Ensure the application uses the test database.
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from app.core.security import create_access_token, hash_password
@@ -33,6 +41,7 @@ test_engine = create_engine(
 )
 
 TestingSessionLocal = sessionmaker(
+    bind=test_engine,
     autoflush=False,
     autocommit=False,
     expire_on_commit=False,
@@ -40,12 +49,7 @@ TestingSessionLocal = sessionmaker(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def prepare_test_database() -> Generator[None, None, None]:
-    """
-    Create all test tables before the test suite.
-
-    Remove all test tables when the full suite finishes.
-    """
+def prepare_test_database():
     Base.metadata.drop_all(bind=test_engine)
     Base.metadata.create_all(bind=test_engine)
 
@@ -56,14 +60,7 @@ def prepare_test_database() -> Generator[None, None, None]:
 
 
 @pytest.fixture()
-def db_session() -> Generator[Session, None, None]:
-    """
-    Run every test inside its own database transaction.
-
-    Application code can call commit(), but the outer transaction is
-    rolled back after the test. This prevents records from one test
-    affecting another test.
-    """
+def db_session():
     connection = test_engine.connect()
     transaction = connection.begin()
 
@@ -84,15 +81,12 @@ def db_session() -> Generator[Session, None, None]:
 
 
 @pytest.fixture()
-def organization(
-    db_session: Session,
-) -> Organization:
-    """Create an isolated organization for one test."""
-    unique_value = uuid.uuid4().hex
+def organization(db_session):
+    unique = uuid.uuid4().hex
 
     organization = Organization(
-        name=f"Test Organization {unique_value}",
-        slug=f"test-organization-{unique_value}",
+        name=f"Test Organization {unique}",
+        slug=f"test-org-{unique}",
     )
 
     db_session.add(organization)
@@ -103,15 +97,11 @@ def organization(
 
 
 @pytest.fixture()
-def test_user(
-    db_session: Session,
-    organization: Organization,
-) -> User:
-    """Create an active test administrator."""
+def test_user(db_session, organization):
     user = User(
         organization_id=organization.id,
         email=f"admin-{uuid.uuid4().hex}@example.com",
-        full_name="Test Administrator",
+        full_name="Test Admin",
         hashed_password=hash_password("TestPassword123!"),
         role=UserRole.ADMIN,
         is_active=True,
@@ -125,8 +115,7 @@ def test_user(
 
 
 @pytest.fixture()
-def auth_headers(test_user: User) -> dict[str, str]:
-    """Return an Authorization header for the test user."""
+def auth_headers(test_user):
     token = create_access_token(subject=str(test_user.id))
 
     return {
@@ -135,18 +124,14 @@ def auth_headers(test_user: User) -> dict[str, str]:
 
 
 @pytest.fixture()
-def client(
-    db_session: Session,
-) -> Generator[TestClient, None, None]:
-    """Provide a TestClient using the test database session."""
-
-    def override_get_db() -> Generator[Session, None, None]:
+def client(db_session):
+    def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
 
     try:
-        with TestClient(app) as test_client:
-            yield test_client
+        with TestClient(app) as c:
+            yield c
     finally:
         app.dependency_overrides.clear()
