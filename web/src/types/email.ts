@@ -149,6 +149,26 @@ export interface CreateQuotationFromThreadResponse {
   status: string
 }
 
+export type QuotationStatus =
+  | 'draft'
+  | 'reviewed'
+  | 'approved'
+  | 'sent'
+  | 'accepted'
+  | 'rejected'
+  | 'expired'
+  | 'cancelled'
+
+export interface QuotationStatusUpdateRequest {
+  status: QuotationStatus
+}
+
+export interface QuotationStatusUpdateResponse {
+  id: string
+  quotation_number: string
+  status: QuotationStatus
+}
+
 export interface QuotationDraftRequest {
   quotation_id: string
 }

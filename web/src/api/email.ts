@@ -12,6 +12,8 @@ import type {
   QuotationDraftResponse,
   QuotationExtractionResponse,
   QuotationPreviewResponse,
+  QuotationStatusUpdateRequest,
+  QuotationStatusUpdateResponse,
   ReplySuggestionsResponse,
   SalesOpportunityResponse,
   ThreadListParams,
@@ -21,7 +23,7 @@ export async function syncInbox(
   maxResults = 25,
 ): Promise<GmailSyncResponse> {
   const response = await apiClient.post<GmailSyncResponse>(
-    '/email/sync',
+    '/v1/email/sync',
     null,
     {
       params: {
@@ -38,7 +40,7 @@ export async function getEmailThreads(
 ): Promise<EmailThreadListResponse> {
   const response =
     await apiClient.get<EmailThreadListResponse>(
-      '/email/threads',
+      '/v1/email/threads',
       {
         params,
       },
@@ -51,7 +53,7 @@ export async function getEmailThread(
   threadId: string,
 ): Promise<EmailThreadDetail> {
   const response = await apiClient.get<EmailThreadDetail>(
-    `/email/threads/${threadId}`,
+    `/v1/email/threads/${threadId}`,
   )
 
   return response.data
@@ -62,7 +64,7 @@ export async function summarizeThread(
 ): Promise<EmailThreadSummaryResponse> {
   const response =
     await apiClient.post<EmailThreadSummaryResponse>(
-      `/email/threads/${threadId}/summary`,
+      `/v1/email/threads/${threadId}/summary`,
     )
 
   return response.data
@@ -73,7 +75,7 @@ export async function getReplySuggestions(
 ): Promise<ReplySuggestionsResponse> {
   const response =
     await apiClient.post<ReplySuggestionsResponse>(
-      `/email/threads/${threadId}/reply-suggestions`,
+      `/v1/email/threads/${threadId}/reply-suggestions`,
     )
 
   return response.data
@@ -84,7 +86,7 @@ export async function detectSalesOpportunity(
 ): Promise<SalesOpportunityResponse> {
   const response =
     await apiClient.post<SalesOpportunityResponse>(
-      `/email/threads/${threadId}/sales-opportunity`,
+      `/v1/email/threads/${threadId}/sales-opportunity`,
     )
 
   return response.data
@@ -95,7 +97,7 @@ export async function extractQuotationRequirements(
 ): Promise<QuotationExtractionResponse> {
   const response =
     await apiClient.post<QuotationExtractionResponse>(
-      `/email/threads/${threadId}/quotation-extraction`,
+      `/v1/email/threads/${threadId}/quotation-extraction`,
     )
 
   return response.data
@@ -106,7 +108,7 @@ export async function previewQuotation(
 ): Promise<QuotationPreviewResponse> {
   const response =
     await apiClient.post<QuotationPreviewResponse>(
-      `/email/threads/${threadId}/quotation-preview`,
+      `/v1/email/threads/${threadId}/quotation-preview`,
     )
 
   return response.data
@@ -117,7 +119,20 @@ export async function createQuotationFromThread(
 ): Promise<CreateQuotationFromThreadResponse> {
   const response =
     await apiClient.post<CreateQuotationFromThreadResponse>(
-      `/email/threads/${threadId}/quotation`,
+      `/v1/email/threads/${threadId}/quotation`,
+    )
+
+  return response.data
+}
+
+export async function updateQuotationStatus(
+  quotationId: string,
+  payload: QuotationStatusUpdateRequest,
+): Promise<QuotationStatusUpdateResponse> {
+  const response =
+    await apiClient.put<QuotationStatusUpdateResponse>(
+      `/v1/quotations/${quotationId}`,
+      payload,
     )
 
   return response.data
@@ -129,7 +144,7 @@ export async function createQuotationDraft(
 ): Promise<QuotationDraftResponse> {
   const response =
     await apiClient.post<QuotationDraftResponse>(
-      `/email/threads/${threadId}/quotation-draft`,
+      `/v1/email/threads/${threadId}/quotation-draft`,
       payload,
     )
 
@@ -140,7 +155,7 @@ export async function downloadQuotationPdf(
   quotationId: string,
 ): Promise<Blob> {
   const response = await apiClient.get<Blob>(
-    `/quotations/${quotationId}/pdf`,
+    `/v1/quotations/${quotationId}/pdf`,
     {
       responseType: 'blob',
     },
@@ -154,7 +169,7 @@ export async function createDraftReply(
   payload: DraftReplyRequest,
 ): Promise<DraftReplyResponse> {
   const response = await apiClient.post<DraftReplyResponse>(
-    `/email/threads/${threadId}/draft-reply`,
+    `/v1/email/threads/${threadId}/draft-reply`,
     payload,
   )
 
@@ -165,7 +180,7 @@ export async function getEmailMessage(
   messageId: string,
 ): Promise<EmailMessage> {
   const response = await apiClient.get<EmailMessage>(
-    `/email/messages/${messageId}`,
+    `/v1/email/messages/${messageId}`,
   )
 
   return response.data

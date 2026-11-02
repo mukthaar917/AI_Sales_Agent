@@ -17,6 +17,57 @@ MONEY_PLACES = Decimal("0.01")
 RATE_DIVISOR = Decimal("100")
 
 
+ALLOWED_QUOTATION_STATUS_TRANSITIONS: dict[
+    QuotationStatus,
+    set[QuotationStatus],
+] = {
+    QuotationStatus.DRAFT: {
+        QuotationStatus.REVIEWED,
+        QuotationStatus.CANCELLED,
+    },
+    QuotationStatus.REVIEWED: {
+        QuotationStatus.APPROVED,
+        QuotationStatus.DRAFT,
+        QuotationStatus.CANCELLED,
+    },
+    QuotationStatus.APPROVED: {
+        QuotationStatus.SENT,
+        QuotationStatus.REVIEWED,
+        QuotationStatus.CANCELLED,
+    },
+    QuotationStatus.SENT: {
+        QuotationStatus.ACCEPTED,
+        QuotationStatus.REJECTED,
+        QuotationStatus.EXPIRED,
+    },
+    QuotationStatus.ACCEPTED: set(),
+    QuotationStatus.REJECTED: set(),
+    QuotationStatus.EXPIRED: set(),
+    QuotationStatus.CANCELLED: set(),
+}
+
+
+def validate_quotation_status_transition(
+    current_status: QuotationStatus,
+    new_status: QuotationStatus,
+) -> None:
+    """Validate one quotation lifecycle transition."""
+
+    if new_status == current_status:
+        return
+
+    allowed_statuses = ALLOWED_QUOTATION_STATUS_TRANSITIONS.get(
+        current_status,
+        set(),
+    )
+
+    if new_status not in allowed_statuses:
+        raise ValueError(
+            "Invalid quotation status transition: "
+            f"{current_status.value} -> {new_status.value}"
+        )
+
+
 def round_money(value: Decimal) -> Decimal:
     """Round a monetary value to two decimal places."""
     return value.quantize(
@@ -148,6 +199,37 @@ def get_customer_for_organization(
             Customer.organization_id == organization_id,
             Customer.is_active.is_(True),
         )
+    )
+
+
+def find_product_by_name_for_organization(
+    db: Session,
+    product_name: str,
+    organization_id: uuid.UUID,
+) -> Product | None:
+    """Find one active organization product by extracted product text."""
+
+    normalized = " ".join(
+        product_name.lower().split()
+    ).strip()
+
+    if not normalized:
+        return None
+
+    search_value = f"%{normalized.rstrip('s')}%"
+
+    return db.scalar(
+        select(Product).where(
+            Product.organization_id == organization_id,
+            Product.is_active.is_(True),
+            or_(
+                func.lower(Product.name).like(search_value),
+                func.lower(Product.description).like(search_value),
+                func.lower(Product.sku).like(search_value),
+            ),
+        )
+        .order_by(Product.name.asc())
+        .limit(1)
     )
 
 
@@ -391,6 +473,14 @@ def update_quotation(
         exclude_unset=True,
         exclude={"items"},
     )
+
+    new_status = update_data.get("status")
+
+    if new_status is not None:
+        validate_quotation_status_transition(
+            current_status=quotation.status,
+            new_status=new_status,
+        )
 
     customer_id = update_data.get("customer_id")
 

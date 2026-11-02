@@ -11,6 +11,7 @@ import {
   getReplySuggestions,
   previewQuotation,
   summarizeThread,
+  updateQuotationStatus,
 } from '../api/email'
 import type {
   CreateQuotationFromThreadResponse,
@@ -20,6 +21,7 @@ import type {
   QuotationDraftResponse,
   QuotationExtractionResponse,
   QuotationPreviewResponse,
+  QuotationStatus,
   ReplySuggestionsResponse,
   SalesOpportunityResponse,
 } from '../types/email'
@@ -204,6 +206,12 @@ export function ThreadPage({
   const [creatingQuotation, setCreatingQuotation] =
     useState(false)
 
+  const [updatingQuotationStatus, setUpdatingQuotationStatus] =
+    useState(false)
+
+  const [quotationStatusError, setQuotationStatusError] =
+    useState<string | null>(null)
+
   const [downloadingPdf, setDownloadingPdf] =
     useState(false)
 
@@ -268,6 +276,7 @@ export function ThreadPage({
 
         setCreatedQuotation(null)
         setCreateQuotationError(null)
+        setQuotationStatusError(null)
 
         setQuotationDraft(null)
         setQuotationDraftError(null)
@@ -435,6 +444,43 @@ export function ThreadPage({
       )
     } finally {
       setCreatingQuotation(false)
+    }
+  }
+
+  async function handleUpdateQuotationStatus(
+    nextStatus: QuotationStatus,
+  ): Promise<void> {
+    if (!createdQuotation) {
+      return
+    }
+
+    try {
+      setUpdatingQuotationStatus(true)
+      setQuotationStatusError(null)
+
+      const response = await updateQuotationStatus(
+        createdQuotation.quotation_id,
+        {
+          status: nextStatus,
+        },
+      )
+
+      setCreatedQuotation((current) => {
+        if (!current) {
+          return current
+        }
+
+        return {
+          ...current,
+          status: response.status,
+        }
+      })
+    } catch {
+      setQuotationStatusError(
+        'Unable to update the quotation status right now.',
+      )
+    } finally {
+      setUpdatingQuotationStatus(false)
     }
   }
 
@@ -706,6 +752,15 @@ export function ThreadPage({
           role="alert"
         >
           {createQuotationError}
+        </div>
+      )}
+
+      {quotationStatusError && (
+        <div
+          className="error-message"
+          role="alert"
+        >
+          {quotationStatusError}
         </div>
       )}
 
@@ -999,6 +1054,53 @@ export function ThreadPage({
             <strong>Status:</strong>{' '}
             {createdQuotation.status}
           </p>
+
+          <div className="quotation-workflow-actions">
+            {createdQuotation.status === 'draft' && (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() =>
+                  void handleUpdateQuotationStatus('reviewed')
+                }
+                disabled={updatingQuotationStatus}
+              >
+                {updatingQuotationStatus
+                  ? 'Updating Status…'
+                  : 'Mark as Reviewed'}
+              </button>
+            )}
+
+            {createdQuotation.status === 'reviewed' && (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() =>
+                  void handleUpdateQuotationStatus('approved')
+                }
+                disabled={updatingQuotationStatus}
+              >
+                {updatingQuotationStatus
+                  ? 'Updating Status…'
+                  : 'Approve Quotation'}
+              </button>
+            )}
+
+            {createdQuotation.status === 'approved' && (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() =>
+                  void handleUpdateQuotationStatus('sent')
+                }
+                disabled={updatingQuotationStatus}
+              >
+                {updatingQuotationStatus
+                  ? 'Updating Status…'
+                  : 'Mark as Sent'}
+              </button>
+            )}
+          </div>
 
           <p>
             The quotation is saved as a draft.
